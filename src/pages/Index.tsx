@@ -371,54 +371,23 @@ export default function Index() {
         ))}
 
         {/* Stats */}
-        <div className="w-full flex flex-col gap-3 animate-fade-in">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col gap-0.5">
-              <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Рейтинг</span>
+        <div className="w-full flex items-center justify-between animate-fade-in">
+          <div className="flex flex-col gap-0.5">
+            <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Рейтинг</span>
+            <div className="flex items-center gap-1.5">
               <span className="font-oswald text-2xl font-bold text-white">{rating}</span>
-            </div>
-            <div className="flex flex-col items-center gap-0.5">
-              <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Серия</span>
-              <span className="font-oswald text-2xl font-bold" style={{ color: streak > 0 ? "#f39c12" : "rgba(255,255,255,0.2)" }}>
-                {streak > 0 ? `🔥 ${streak}` : "—"}
-              </span>
-            </div>
-            <div className="flex flex-col items-end gap-0.5">
-              <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Монеты</span>
-              <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>⚡{coins}</span>
+              <span className="text-sm leading-none">{currentLeague.icon}</span>
             </div>
           </div>
-
-          {/* League bar */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-base leading-none">{currentLeague.icon}</span>
-                <span
-                  className="font-oswald text-sm font-bold uppercase tracking-wider"
-                  style={{ color: currentLeague.color, textShadow: currentLeague.animated ? `0 0 12px ${currentLeague.color}` : "none" }}
-                >
-                  {currentLeague.name}
-                </span>
-              </div>
-              {leagueProgress.next ? (
-                <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>
-                  до {leagueProgress.next.name}: {leagueProgress.pointsLeft}
-                </span>
-              ) : (
-                <span className="font-rubik text-[10px]" style={{ color: currentLeague.color }}>Максимум</span>
-              )}
-            </div>
-            <div className="relative w-full h-1 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.07)" }}>
-              <div
-                className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
-                style={{
-                  width: `${leagueProgress.pct}%`,
-                  backgroundColor: currentLeague.color,
-                  boxShadow: `0 0 6px ${currentLeague.glowColor}`,
-                }}
-              />
-            </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Серия</span>
+            <span className="font-oswald text-2xl font-bold" style={{ color: streak > 0 ? "#f39c12" : "rgba(255,255,255,0.2)" }}>
+              {streak > 0 ? `🔥 ${streak}` : "—"}
+            </span>
+          </div>
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Монеты</span>
+            <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>⚡{coins}</span>
           </div>
         </div>
 
