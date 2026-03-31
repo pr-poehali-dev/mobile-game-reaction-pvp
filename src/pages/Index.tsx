@@ -91,7 +91,7 @@ export default function Index() {
     const stored = localStorage.getItem("ne_slomaisa_player_id");
     if (stored) {
       setPlayerId(stored);
-      fetch(`${API}/profile`, { headers: { "X-Player-Id": stored } })
+      fetch(`${API}/?action=profile&player_id=${stored}`)
         .then(r => r.json())
         .then(d => {
           if (d.player) setPlayer(d.player);
@@ -99,7 +99,7 @@ export default function Index() {
         .catch(() => {});
     } else {
       const nick = randomNick();
-      fetch(`${API}/init-player`, {
+      fetch(`${API}/?action=init-player`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nickname: nick }),
@@ -148,7 +148,7 @@ export default function Index() {
   const saveResult = useCallback((type: ResultType, reactionTime: number | null, newPlayer: Player) => {
     const pid = localStorage.getItem("ne_slomaisa_player_id");
     if (!pid) return;
-    fetch(`${API}/save-result`, {
+    fetch(`${API}/?action=save-result`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Player-Id": pid },
       body: JSON.stringify({ result: type, reaction_time: reactionTime }),
@@ -286,7 +286,7 @@ export default function Index() {
   const loadLeaderboard = useCallback(() => {
     setLoadingLB(true);
     const pid = localStorage.getItem("ne_slomaisa_player_id") || "";
-    fetch(`${API}/leaderboard?player_id=${pid}`)
+    fetch(`${API}/?action=leaderboard&player_id=${pid}`)
       .then(r => r.json())
       .then(d => {
         setLeaderboard(d.top || []);
@@ -299,7 +299,7 @@ export default function Index() {
   const loadProfile = useCallback(() => {
     const pid = localStorage.getItem("ne_slomaisa_player_id");
     if (!pid) return;
-    fetch(`${API}/profile`, { headers: { "X-Player-Id": pid } })
+    fetch(`${API}/?action=profile&player_id=${pid}`)
       .then(r => r.json())
       .then(d => {
         if (d.player) setPlayer(d.player);
