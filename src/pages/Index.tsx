@@ -190,6 +190,26 @@ export default function Index() {
     tensionTimersRef.current = effects;
   }, []);
 
+  // ── CHALLENGES: репортнуть матч ──
+  const reportChallenge = useCallback((type: ResultType) => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${CHALL_API}/?action=report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({ result: type }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.challenges) setChallenges(d.challenges);
+        if (d.coins_earned > 0) {
+          setChallengeCoins(d.coins_earned);
+          setTimeout(() => setChallengeCoins(0), 3000);
+          if (d.player) setPlayer(d.player);
+        }
+      });
+  }, []);
+
   // ── SAVE RESULT TO SERVER ──
   const saveResult = useCallback((type: ResultType, reactionTime: number | null, newPlayer: Player) => {
     const pid = localStorage.getItem("ne_slomaisa_player_id");
@@ -483,25 +503,7 @@ export default function Index() {
       .then(d => { if (d.challenges) setChallenges(d.challenges); });
   }, []);
 
-  // ── CHALLENGES: репортнуть матч ──
-  const reportChallenge = useCallback((type: ResultType) => {
-    const pid = localStorage.getItem("ne_slomaisa_player_id");
-    if (!pid) return;
-    fetch(`${CHALL_API}/?action=report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
-      body: JSON.stringify({ result: type }),
-    })
-      .then(r => r.json())
-      .then(d => {
-        if (d.challenges) setChallenges(d.challenges);
-        if (d.coins_earned > 0) {
-          setChallengeCoins(d.coins_earned);
-          setTimeout(() => setChallengeCoins(0), 3000);
-          if (d.player) setPlayer(d.player);
-        }
-      });
-  }, []);
+
 
   // Проверяем deep-link при загрузке
   useEffect(() => {
