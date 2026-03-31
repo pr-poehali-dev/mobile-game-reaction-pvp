@@ -1,0 +1,44 @@
+{
+  "tests": [
+    {
+      "name": "Health - unknown route",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 404,
+      "expectedBody": {"error": "not found"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "CORS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Init player via action param",
+      "method": "POST",
+      "path": "/?action=init-player",
+      "body": {"nickname": "ТестБот"},
+      "expectedStatus": 200,
+      "expectedBody": {"player": {"nickname": "ТестБот", "rating": 1000}},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Leaderboard via action param",
+      "method": "GET",
+      "path": "/?action=leaderboard",
+      "expectedStatus": 200,
+      "expectedBody": {"top": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Profile missing player_id",
+      "method": "GET",
+      "path": "/?action=profile",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

@@ -1,10 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 
+const API = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279";
+
 // ─────────────── TYPES ───────────────
-type Screen = "home" | "searching" | "game" | "result";
+type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile";
 type GamePhase = "wait" | "tension" | "action" | "done";
 type ResultType = "win" | "lose" | "false_start";
+
+interface Player {
+  id: string;
+  nickname: string;
+  rating: number;
+  wins: number;
+  losses: number;
+  streak: number;
+  max_streak: number;
+  best_reaction: number | null;
+  coins: number;
+}
 
 interface MatchResult {
   type: ResultType;
@@ -13,14 +27,23 @@ interface MatchResult {
   ratingChange: number;
   coinsEarned: number;
   newStreak: number;
+  percentBetter?: number;
+  rank?: number;
+}
+
+interface LeaderboardEntry {
+  id: string;
+  nickname: string;
+  rating: number;
+  wins: number;
+  rank: number;
+  best_reaction: number | null;
 }
 
 // ─────────────── BOT LOGIC ───────────────
 function getBotReactionTime(): number {
   const base = 200 + Math.random() * 150;
-  const falseStartChance = Math.random() < 0.05;
-  if (falseStartChance) return -1;
-  return base;
+  return Math.random() < 0.05 ? -1 : base;
 }
 
 function getSignalDelay(): number {
@@ -30,29 +53,68 @@ function getSignalDelay(): number {
   return 3500 + Math.random() * 1500;
 }
 
+const NICKNAMES = ["Зверь", "Железный", "Молния", "Призрак", "Ракета", "Тень", "Коршун", "Тигр", "Волк", "Дракон"];
+function randomNick() { return NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)] + Math.floor(Math.random() * 99); }
+
 // ─────────────── MAIN COMPONENT ───────────────
 export default function Index() {
   const [screen, setScreen] = useState<Screen>("home");
   const [phase, setPhase] = useState<GamePhase>("wait");
   const [result, setResult] = useState<MatchResult | null>(null);
-  const [rating, setRating] = useState(1000);
-  const [coins, setCoins] = useState(150);
-  const [streak, setStreak] = useState(0);
-  const [matchCount, setMatchCount] = useState(0);
+  const [player, setPlayer] = useState<Player | null>(null);
+  const [playerId, setPlayerId] = useState<string>("");
 
-  // Tension effects state
+  // Tension
   const [fakeFlash, setFakeFlash] = useState(false);
   const [almostGreen, setAlmostGreen] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [screenFlash, setScreenFlash] = useState<"none" | "red" | "green">("none");
+
+  // Leaderboard / profile
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [neighbors, setNeighbors] = useState<LeaderboardEntry[]>([]);
+  const [profileData, setProfileData] = useState<{ avg_reaction: number | null; winrate: number; percent_better: number; rank: number; total_players: number } | null>(null);
+  const [loadingLB, setLoadingLB] = useState(false);
 
   const greenTimeRef = useRef<number>(0);
   const gameActiveRef = useRef(false);
   const tensionTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const mainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phaseRef = useRef<GamePhase>("wait");
+  const playerRef = useRef<Player | null>(null);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { playerRef.current = player; }, [player]);
+
+  // ── INIT PLAYER ──
+  useEffect(() => {
+    const stored = localStorage.getItem("ne_slomaisa_player_id");
+    if (stored) {
+      setPlayerId(stored);
+      fetch(`${API}/profile`, { headers: { "X-Player-Id": stored } })
+        .then(r => r.json())
+        .then(d => {
+          if (d.player) setPlayer(d.player);
+        })
+        .catch(() => {});
+    } else {
+      const nick = randomNick();
+      fetch(`${API}/init-player`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nickname: nick }),
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.player) {
+            localStorage.setItem("ne_slomaisa_player_id", d.player.id);
+            setPlayerId(d.player.id);
+            setPlayer(d.player);
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   const clearAllTimers = useCallback(() => {
     tensionTimersRef.current.forEach(clearTimeout);
@@ -60,51 +122,55 @@ export default function Index() {
     if (mainTimerRef.current) clearTimeout(mainTimerRef.current);
   }, []);
 
-  // ─── TENSION EFFECTS ───
+  // ── TENSION ──
   const runTensionEffects = useCallback((totalDelay: number) => {
     const effects: ReturnType<typeof setTimeout>[] = [];
-
     if (Math.random() < 0.30) {
-      const t = Math.random() * (totalDelay * 0.6) + 300;
-      effects.push(setTimeout(() => {
-        setFakeFlash(true);
-        setTimeout(() => setFakeFlash(false), 60 + Math.random() * 40);
-      }, t));
+      const t = Math.random() * totalDelay * 0.6 + 300;
+      effects.push(setTimeout(() => { setFakeFlash(true); setTimeout(() => setFakeFlash(false), 60 + Math.random() * 40); }, t));
     }
-
     if (Math.random() < 0.20) {
-      const t = Math.random() * (totalDelay * 0.5) + 500;
-      effects.push(setTimeout(() => {
-        setAlmostGreen(true);
-        setTimeout(() => setAlmostGreen(false), 80 + Math.random() * 40);
-      }, t));
+      const t = Math.random() * totalDelay * 0.5 + 500;
+      effects.push(setTimeout(() => { setAlmostGreen(true); setTimeout(() => setAlmostGreen(false), 80 + Math.random() * 40); }, t));
     }
-
     if (Math.random() < 0.20) {
-      const t = Math.random() * (totalDelay * 0.7) + 400;
+      const t = Math.random() * totalDelay * 0.7 + 400;
       effects.push(setTimeout(() => {
         setShaking(true);
         if (navigator.vibrate) navigator.vibrate([30]);
         setTimeout(() => setShaking(false), 400);
       }, t));
     }
-
-    if (Math.random() < 0.15) {
-      const t = Math.random() * (totalDelay * 0.8) + 600;
-      effects.push(setTimeout(() => {
-        setFakeFlash(true);
-        setTimeout(() => setFakeFlash(false), 50);
-      }, t));
-    }
-
     tensionTimersRef.current = effects;
   }, []);
 
+  // ── SAVE RESULT TO SERVER ──
+  const saveResult = useCallback((type: ResultType, reactionTime: number | null, newPlayer: Player) => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${API}/save-result`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({ result: type, reaction_time: reactionTime }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.player) setPlayer(d.player);
+        setResult(prev => prev ? {
+          ...prev,
+          percentBetter: d.percent_better,
+          rank: d.rank,
+        } : prev);
+      })
+      .catch(() => {});
+  }, []);
+
+  // ── FINISH MATCH ──
   const finishMatch = useCallback((
     type: ResultType,
     playerMs: number,
     opponentMs: number,
-    currentStreak: number
+    curPlayer: Player | null,
   ) => {
     clearAllTimers();
     gameActiveRef.current = false;
@@ -112,32 +178,44 @@ export default function Index() {
 
     const isWin = type === "win";
     const ratingDelta = isWin ? 25 : -15;
+    const currentStreak = curPlayer?.streak ?? 0;
     const newStreak = isWin ? currentStreak + 1 : 0;
     const streakBonus = newStreak >= 5 ? 2 : 1;
-    const baseCoins = isWin ? 20 : 5;
-    const earned = baseCoins * streakBonus;
+    const coins_earned = (isWin ? 20 : 5) * streakBonus;
 
-    setRating(r => Math.max(0, r + ratingDelta));
-    setCoins(c => c + earned);
-    setStreak(newStreak);
-    setMatchCount(m => m + 1);
+    const newPlayer: Player = curPlayer ? {
+      ...curPlayer,
+      rating: Math.max(0, curPlayer.rating + ratingDelta),
+      wins: curPlayer.wins + (isWin ? 1 : 0),
+      losses: curPlayer.losses + (isWin ? 0 : 1),
+      streak: newStreak,
+      max_streak: Math.max(curPlayer.max_streak, newStreak),
+      coins: curPlayer.coins + coins_earned,
+      best_reaction: (playerMs > 0 && playerMs < 5000)
+        ? (curPlayer.best_reaction ? Math.min(curPlayer.best_reaction, playerMs) : playerMs)
+        : curPlayer.best_reaction,
+    } : null;
+
+    if (newPlayer) setPlayer(newPlayer);
 
     setResult({
       type,
       playerTime: playerMs,
       opponentTime: opponentMs,
       ratingChange: ratingDelta,
-      coinsEarned: earned,
+      coinsEarned: coins_earned,
       newStreak,
     });
+
+    saveResult(type, playerMs > 0 && playerMs < 5000 ? playerMs : null, newPlayer!);
 
     setTimeout(() => {
       setScreenFlash("none");
       setScreen("result");
     }, 350);
-  }, [clearAllTimers]);
+  }, [clearAllTimers, saveResult]);
 
-  // ─── START MATCH ───
+  // ── START MATCH ──
   const startMatch = useCallback(() => {
     setScreen("searching");
     setResult(null);
@@ -163,35 +241,23 @@ export default function Index() {
         setScreenFlash("green");
 
         const botTime = getBotReactionTime();
-
         if (botTime === -1) {
           setTimeout(() => {
-            if (gameActiveRef.current) {
-              gameActiveRef.current = false;
-              finishMatch("win", 999, -1, streak);
-            }
+            if (gameActiveRef.current) finishMatch("win", 999, -1, playerRef.current);
           }, 200);
         } else {
           setTimeout(() => {
-            if (gameActiveRef.current) {
-              gameActiveRef.current = false;
-              finishMatch("lose", 9999, botTime, streak);
-            }
+            if (gameActiveRef.current) finishMatch("lose", 9999, botTime, playerRef.current);
           }, botTime);
         }
-
         setTimeout(() => {
-          if (gameActiveRef.current) {
-            gameActiveRef.current = false;
-            finishMatch("lose", 5000, getBotReactionTime(), streak);
-          }
+          if (gameActiveRef.current) finishMatch("lose", 5000, getBotReactionTime(), playerRef.current);
         }, 3000);
-
       }, delay);
     }, 1200 + Math.random() * 800);
-  }, [runTensionEffects, finishMatch, streak]);
+  }, [runTensionEffects, finishMatch]);
 
-  // ─── PLAYER TAP ───
+  // ── PLAYER TAP ──
   const handleGameTap = useCallback(() => {
     if (!gameActiveRef.current) return;
     const currentPhase = phaseRef.current;
@@ -203,26 +269,51 @@ export default function Index() {
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
       setShaking(true);
       setTimeout(() => setShaking(false), 400);
-      finishMatch("false_start", -1, 0, streak);
+      finishMatch("false_start", -1, 0, playerRef.current);
       return;
     }
-
     if (currentPhase === "action") {
       const reactionTime = Date.now() - greenTimeRef.current;
       if (reactionTime < 100) return;
-
       gameActiveRef.current = false;
       clearAllTimers();
-
       const botTime = 200 + Math.random() * 150;
-      const type = reactionTime < botTime ? "win" : "lose";
-      finishMatch(type, reactionTime, botTime, streak);
+      finishMatch(reactionTime < botTime ? "win" : "lose", reactionTime, botTime, playerRef.current);
     }
-  }, [finishMatch, clearAllTimers, streak]);
+  }, [finishMatch, clearAllTimers]);
 
-  useEffect(() => {
-    return () => clearAllTimers();
-  }, [clearAllTimers]);
+  // ── LOAD LEADERBOARD ──
+  const loadLeaderboard = useCallback(() => {
+    setLoadingLB(true);
+    const pid = localStorage.getItem("ne_slomaisa_player_id") || "";
+    fetch(`${API}/leaderboard?player_id=${pid}`)
+      .then(r => r.json())
+      .then(d => {
+        setLeaderboard(d.top || []);
+        setNeighbors(d.neighbors || []);
+      })
+      .finally(() => setLoadingLB(false));
+  }, []);
+
+  // ── LOAD PROFILE ──
+  const loadProfile = useCallback(() => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+    fetch(`${API}/profile`, { headers: { "X-Player-Id": pid } })
+      .then(r => r.json())
+      .then(d => {
+        if (d.player) setPlayer(d.player);
+        setProfileData({
+          avg_reaction: d.avg_reaction,
+          winrate: d.winrate,
+          percent_better: d.percent_better,
+          rank: d.rank,
+          total_players: d.total_players,
+        });
+      });
+  }, []);
+
+  useEffect(() => { return () => clearAllTimers(); }, [clearAllTimers]);
 
   const getBgColor = () => {
     if (screenFlash === "red") return "#c0392b";
@@ -233,105 +324,75 @@ export default function Index() {
     return "#0f0f0f";
   };
 
-  // ─────────────── RENDER SCREENS ───────────────
+  const rating = player?.rating ?? 1000;
+  const streak = player?.streak ?? 0;
+  const coins = player?.coins ?? 150;
 
-  // HOME
+  // ═══════════════════ SCREENS ═══════════════════
+
+  // ── HOME ──
   if (screen === "home") {
     return (
-      <div
-        className="relative flex flex-col items-center justify-between h-dvh w-full px-6 py-10 overflow-hidden"
-        style={{ backgroundColor: "#0f0f0f" }}
-      >
-        {/* Corner brackets */}
-        <div className="absolute top-4 left-4 w-6 h-6 border-l-2 border-t-2" style={{ borderColor: "rgba(192,57,43,0.4)" }} />
-        <div className="absolute top-4 right-4 w-6 h-6 border-r-2 border-t-2" style={{ borderColor: "rgba(192,57,43,0.4)" }} />
-        <div className="absolute bottom-4 left-4 w-6 h-6 border-l-2 border-b-2" style={{ borderColor: "rgba(192,57,43,0.4)" }} />
-        <div className="absolute bottom-4 right-4 w-6 h-6 border-r-2 border-b-2" style={{ borderColor: "rgba(192,57,43,0.4)" }} />
+      <div className="relative flex flex-col items-center justify-between h-dvh w-full px-6 py-10 overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        {["top-4 left-4 border-l-2 border-t-2", "top-4 right-4 border-r-2 border-t-2", "bottom-4 left-4 border-l-2 border-b-2", "bottom-4 right-4 border-r-2 border-b-2"].map((cls, i) => (
+          <div key={i} className={`absolute w-6 h-6 ${cls}`} style={{ borderColor: "rgba(192,57,43,0.35)" }} />
+        ))}
 
-        {/* Top stats */}
+        {/* Stats */}
         <div className="w-full flex items-center justify-between animate-fade-in">
-          <div className="flex flex-col items-start gap-0.5">
-            <span className="font-rubik text-[10px] tracking-widest text-white/25 uppercase">Рейтинг</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Рейтинг</span>
             <span className="font-oswald text-2xl font-bold text-white">{rating}</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
-            <span className="font-rubik text-[10px] tracking-widest text-white/25 uppercase">Серия</span>
+            <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Серия</span>
             <span className="font-oswald text-2xl font-bold" style={{ color: streak > 0 ? "#f39c12" : "rgba(255,255,255,0.2)" }}>
               {streak > 0 ? `🔥 ${streak}` : "—"}
             </span>
           </div>
           <div className="flex flex-col items-end gap-0.5">
-            <span className="font-rubik text-[10px] tracking-widest text-white/25 uppercase">Монеты</span>
+            <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Монеты</span>
             <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>⚡{coins}</span>
           </div>
         </div>
 
-        {/* Hero center */}
+        {/* Hero */}
         <div className="flex flex-col items-center gap-6">
           <div className="relative flex flex-col items-center">
-            {/* Ambient glow */}
-            <div
-              className="absolute w-48 h-48 rounded-full blur-3xl pointer-events-none"
-              style={{ backgroundColor: "#c0392b", opacity: 0.08 }}
-            />
-            {/* Label */}
-            <div
-              className="relative z-10 border px-6 py-1.5 mb-5"
-              style={{ borderColor: "rgba(192,57,43,0.5)" }}
-            >
-              <span className="font-rubik text-[10px] tracking-[0.4em] uppercase" style={{ color: "#c0392b" }}>
-                PvP · 1 НА 1
-              </span>
+            <div className="absolute w-56 h-56 rounded-full blur-3xl pointer-events-none" style={{ backgroundColor: "#c0392b", opacity: 0.07 }} />
+            <div className="relative z-10 border px-6 py-1.5 mb-5" style={{ borderColor: "rgba(192,57,43,0.5)" }}>
+              <span className="font-rubik text-[10px] tracking-[0.4em] uppercase" style={{ color: "#c0392b" }}>PvP · 1 НА 1</span>
             </div>
-            {/* Title */}
-            <h1
-              className="relative z-10 font-oswald leading-[0.9] font-bold uppercase text-center"
-              style={{ fontSize: "clamp(3.5rem, 18vw, 5.5rem)", color: "#f5f5f5", letterSpacing: "-0.02em" }}
-            >
-              НЕ
-            </h1>
-            <h1
-              className="relative z-10 font-oswald leading-[0.9] font-bold uppercase text-center"
-              style={{ fontSize: "clamp(3.5rem, 18vw, 5.5rem)", color: "#c0392b", letterSpacing: "-0.02em" }}
-            >
-              СЛОМАЙСЯ
-            </h1>
-            <p
-              className="relative z-10 font-rubik text-sm text-center mt-5 leading-relaxed"
-              style={{ color: "rgba(255,255,255,0.3)", maxWidth: "220px" }}
-            >
+            <h1 className="relative z-10 font-oswald leading-[0.9] font-bold uppercase" style={{ fontSize: "clamp(3.5rem, 18vw, 5.5rem)", color: "#f5f5f5", letterSpacing: "-0.02em" }}>НЕ</h1>
+            <h1 className="relative z-10 font-oswald leading-[0.9] font-bold uppercase" style={{ fontSize: "clamp(3.5rem, 18vw, 5.5rem)", color: "#c0392b", letterSpacing: "-0.02em" }}>СЛОМАЙСЯ</h1>
+            <p className="relative z-10 font-rubik text-sm text-center mt-5 leading-relaxed" style={{ color: "rgba(255,255,255,0.3)", maxWidth: "220px" }}>
               Нажми точно в момент сигнала.<br />Не раньше. Кто быстрее — победит.
             </p>
           </div>
 
-          {/* Play button */}
+          {player && (
+            <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.18)" }}>
+              {player.nickname} · {player.wins + player.losses} матчей
+            </span>
+          )}
+
           <button
             onClick={startMatch}
-            className="relative w-full max-w-xs h-16 font-oswald text-xl font-bold tracking-[0.2em] uppercase transition-all duration-100 active:scale-95 active:brightness-90"
+            className="w-full max-w-xs h-16 font-oswald text-xl font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
             style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
           >
             ИГРАТЬ
           </button>
-
-          {matchCount > 0 && (
-            <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.15)" }}>
-              Сыграно: {matchCount} · ELO: {rating}
-            </span>
-          )}
         </div>
 
-        {/* Bottom nav */}
+        {/* Nav */}
         <div className="flex gap-10 items-center">
           {[
-            { icon: "Trophy", label: "Топ" },
-            { icon: "ShoppingBag", label: "Магазин" },
-            { icon: "User", label: "Профиль" },
-          ].map(({ icon, label }) => (
-            <button
-              key={label}
-              className="flex flex-col items-center gap-1.5 transition-opacity active:opacity-60"
-              style={{ opacity: 0.3 }}
-            >
+            { icon: "Trophy", label: "Топ", action: () => { setScreen("leaderboard"); loadLeaderboard(); } },
+            { icon: "ShoppingBag", label: "Магазин", action: () => {} },
+            { icon: "User", label: "Профиль", action: () => { setScreen("profile"); loadProfile(); } },
+          ].map(({ icon, label, action }) => (
+            <button key={label} onClick={action} className="flex flex-col items-center gap-1.5 transition-opacity active:opacity-60" style={{ opacity: 0.35 }}>
               <Icon name={icon} size={18} style={{ color: "#f5f5f5" }} />
               <span className="font-rubik text-[9px] text-white uppercase tracking-wider">{label}</span>
             </button>
@@ -341,46 +402,21 @@ export default function Index() {
     );
   }
 
-  // SEARCHING
+  // ── SEARCHING ──
   if (screen === "searching") {
     return (
-      <div
-        className="flex flex-col items-center justify-center h-dvh w-full gap-10"
-        style={{ backgroundColor: "#0f0f0f" }}
-      >
+      <div className="flex flex-col items-center justify-center h-dvh w-full gap-10" style={{ backgroundColor: "#0f0f0f" }}>
         <div className="relative flex items-center justify-center w-24 h-24">
           {[1, 0.65, 0.4].map((scale, i) => (
-            <div
-              key={i}
-              className="absolute rounded-full border"
-              style={{
-                width: `${96 * scale}px`,
-                height: `${96 * scale}px`,
-                borderColor: "rgba(192,57,43,0.4)",
-                animation: `pulse ${1.2 + i * 0.3}s ease-in-out ${i * 0.15}s infinite`,
-              }}
-            />
+            <div key={i} className="absolute rounded-full border" style={{ width: `${96 * scale}px`, height: `${96 * scale}px`, borderColor: "rgba(192,57,43,0.4)", animation: `pulse ${1.2 + i * 0.3}s ease-in-out ${i * 0.15}s infinite` }} />
           ))}
           <Icon name="Crosshair" size={30} style={{ color: "#c0392b" }} />
         </div>
-
         <div className="flex flex-col items-center gap-3">
-          <span
-            className="font-oswald text-xl tracking-[0.25em] uppercase"
-            style={{ color: "rgba(255,255,255,0.6)" }}
-          >
-            Ищем соперника
-          </span>
+          <span className="font-oswald text-xl tracking-[0.25em] uppercase" style={{ color: "rgba(255,255,255,0.6)" }}>Ищем соперника</span>
           <div className="flex gap-1.5">
             {[0, 1, 2].map(i => (
-              <div
-                key={i}
-                className="w-1.5 h-1.5 rounded-full"
-                style={{
-                  backgroundColor: "#c0392b",
-                  animation: `pulse 1.2s ease-in-out ${i * 0.25}s infinite`,
-                }}
-              />
+              <div key={i} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "#c0392b", animation: `pulse 1.2s ease-in-out ${i * 0.25}s infinite` }} />
             ))}
           </div>
         </div>
@@ -388,156 +424,84 @@ export default function Index() {
     );
   }
 
-  // GAME
+  // ── GAME ──
   if (screen === "game") {
     const isAction = phase === "action";
     const bgColor = getBgColor();
-    const textColor = isAction ? "#0f0f0f" : "#f5f5f5";
 
     return (
       <div
         className={`relative flex flex-col items-center justify-center h-dvh w-full select-none ${shaking ? "animate-shake" : ""}`}
-        style={{
-          backgroundColor: bgColor,
-          transition: isAction ? "background-color 0.07s ease-out" : "background-color 0.2s ease-out",
-        }}
+        style={{ backgroundColor: bgColor, transition: isAction ? "background-color 0.07s" : "background-color 0.2s" }}
         onPointerDown={handleGameTap}
       >
-        {/* Fake flash / almost green overlay */}
         {(fakeFlash || almostGreen) && (
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{ backgroundColor: "#00e676", opacity: fakeFlash ? 0.07 : 0.12, zIndex: 10 }}
-          />
+          <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: "#00e676", opacity: fakeFlash ? 0.07 : 0.12, zIndex: 10 }} />
         )}
-
-        {/* Hint top */}
-        <div
-          className="absolute top-12 inset-x-0 flex justify-center"
-          style={{ color: isAction ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.12)" }}
-        >
-          <span className="font-rubik text-[11px] uppercase tracking-widest">
-            {isAction ? "нажимай" : "не трогай экран"}
-          </span>
+        <div className="absolute top-12 inset-x-0 flex justify-center" style={{ color: isAction ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.12)" }}>
+          <span className="font-rubik text-[11px] uppercase tracking-widest">{isAction ? "нажимай" : "не трогай экран"}</span>
         </div>
-
-        {/* Main text */}
         <div className="flex flex-col items-center">
           {!isAction ? (
             <div className="flex flex-col items-center gap-4">
-              <div
-                className="w-2.5 h-2.5 rounded-full"
-                style={{
-                  backgroundColor: "#c0392b",
-                  boxShadow: "0 0 16px rgba(192,57,43,0.9)",
-                  animation: "pulse 1s ease-in-out infinite",
-                }}
-              />
-              <span
-                className="font-oswald font-bold uppercase leading-none tracking-tight"
-                style={{ fontSize: "clamp(5rem, 25vw, 8rem)", color: textColor }}
-              >
-                ЖДИ
-              </span>
-              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.18)" }}>
-                сигнал скоро…
-              </span>
+              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "#c0392b", boxShadow: "0 0 16px rgba(192,57,43,0.9)", animation: "pulse 1s ease-in-out infinite" }} />
+              <span className="font-oswald font-bold uppercase leading-none tracking-tight" style={{ fontSize: "clamp(5rem, 25vw, 8rem)", color: "#f5f5f5" }}>ЖДИ</span>
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.18)" }}>сигнал скоро…</span>
             </div>
           ) : (
             <div className="flex flex-col items-center animate-number-pop">
-              <span
-                className="font-oswald font-bold uppercase leading-none tracking-tight"
-                style={{
-                  fontSize: "clamp(5rem, 25vw, 8rem)",
-                  color: "#0f0f0f",
-                  textShadow: "0 2px 30px rgba(0,0,0,0.15)",
-                }}
-              >
-                ЖМИ!
-              </span>
+              <span className="font-oswald font-bold uppercase leading-none tracking-tight" style={{ fontSize: "clamp(5rem, 25vw, 8rem)", color: "#0f0f0f" }}>ЖМИ!</span>
             </div>
           )}
         </div>
-
-        {/* Hint bottom */}
         {isAction && (
-          <div
-            className="absolute bottom-16 inset-x-0 flex justify-center animate-fade-in"
-            style={{ color: "rgba(0,0,0,0.3)" }}
-          >
+          <div className="absolute bottom-16 inset-x-0 flex justify-center animate-fade-in" style={{ color: "rgba(0,0,0,0.3)" }}>
             <span className="font-rubik text-[11px] uppercase tracking-widest">весь экран — кнопка</span>
           </div>
         )}
-
-        {/* Corners */}
         {["top-0 left-0 border-l-2 border-t-2", "top-0 right-0 border-r-2 border-t-2", "bottom-0 left-0 border-l-2 border-b-2", "bottom-0 right-0 border-r-2 border-b-2"].map((cls, i) => (
-          <div
-            key={i}
-            className={`absolute w-8 h-8 ${cls}`}
-            style={{ borderColor: isAction ? "rgba(0,0,0,0.15)" : "rgba(192,57,43,0.25)" }}
-          />
+          <div key={i} className={`absolute w-8 h-8 ${cls}`} style={{ borderColor: isAction ? "rgba(0,0,0,0.15)" : "rgba(192,57,43,0.25)" }} />
         ))}
       </div>
     );
   }
 
-  // RESULT
+  // ── RESULT ──
   if (screen === "result" && result) {
     const isWin = result.type === "win";
     const isFalseStart = result.type === "false_start";
     const accentColor = isWin ? "#00e676" : "#c0392b";
-
     const titleText = isFalseStart ? "ТЫ СЛОМАЛСЯ" : isWin ? "ТЫ ВЫДЕРЖАЛ" : "ОН ВЫДЕРЖАЛ";
-    const subtitleText = isFalseStart
-      ? "нажал слишком рано — фальстарт"
-      : isWin
-      ? `ты был быстрее на ${Math.round(result.opponentTime - result.playerTime)}мс`
-      : `соперник опередил тебя`;
+    const subtitleText = isFalseStart ? "нажал слишком рано — фальстарт" : isWin ? `ты быстрее на ${Math.round(result.opponentTime - result.playerTime)}мс` : "соперник оказался быстрее";
 
     return (
-      <div
-        className="relative flex flex-col items-center justify-between h-dvh w-full px-6 py-12 overflow-hidden"
-        style={{ backgroundColor: "#0f0f0f" }}
-      >
-        {/* Ambient glow */}
-        <div
-          className="absolute top-[-60px] left-1/2 -translate-x-1/2 w-72 h-72 rounded-full blur-3xl pointer-events-none"
-          style={{ backgroundColor: accentColor, opacity: 0.08 }}
-        />
-
+      <div className="relative flex flex-col items-center justify-between h-dvh w-full px-6 py-12 overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        <div className="absolute top-[-60px] left-1/2 -translate-x-1/2 w-72 h-72 rounded-full blur-3xl pointer-events-none" style={{ backgroundColor: accentColor, opacity: 0.08 }} />
         <div />
-
-        {/* Result block */}
         <div className="flex flex-col items-center gap-6 animate-result-in w-full">
-          <div
-            className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: accentColor, boxShadow: `0 0 20px ${accentColor}` }}
-          />
-
+          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: accentColor, boxShadow: `0 0 20px ${accentColor}` }} />
           <div className="flex flex-col items-center gap-2">
-            <span
-              className={`font-oswald font-bold uppercase text-center leading-none ${isWin ? "animate-win-glow" : "animate-lose-glow"}`}
-              style={{ fontSize: "clamp(2.5rem, 12vw, 4rem)", color: accentColor }}
-            >
+            <span className={`font-oswald font-bold uppercase text-center leading-none ${isWin ? "animate-win-glow" : "animate-lose-glow"}`} style={{ fontSize: "clamp(2.5rem, 12vw, 4rem)", color: accentColor }}>
               {titleText}
             </span>
-            <span className="font-rubik text-sm text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
-              {subtitleText}
-            </span>
+            <span className="font-rubik text-sm text-center" style={{ color: "rgba(255,255,255,0.3)" }}>{subtitleText}</span>
           </div>
+
+          {/* Percent better */}
+          {result.percentBetter !== undefined && (
+            <div className="border px-5 py-2" style={{ borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(255,255,255,0.03)" }}>
+              <span className="font-oswald text-lg font-bold" style={{ color: "#f39c12" }}>
+                БЫСТРЕЕ {result.percentBetter}% ИГРОКОВ
+              </span>
+            </div>
+          )}
 
           {/* Time comparison */}
           {!isFalseStart && (
-            <div
-              className="w-full flex border"
-              style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}
-            >
+            <div className="w-full flex border" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
               <div className="flex-1 flex flex-col items-center gap-1 py-4">
                 <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>Ты</span>
-                <span
-                  className="font-oswald text-3xl font-bold"
-                  style={{ color: isWin ? "#00e676" : "#c0392b" }}
-                >
+                <span className="font-oswald text-3xl font-bold" style={{ color: isWin ? "#00e676" : "#c0392b" }}>
                   {result.playerTime === 9999 ? "—" : result.playerTime}
                 </span>
                 <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.2)" }}>мс</span>
@@ -545,10 +509,7 @@ export default function Index() {
               <div className="w-px" style={{ backgroundColor: "rgba(255,255,255,0.07)" }} />
               <div className="flex-1 flex flex-col items-center gap-1 py-4">
                 <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>Соперник</span>
-                <span
-                  className="font-oswald text-3xl font-bold"
-                  style={{ color: isWin ? "#c0392b" : "#00e676" }}
-                >
+                <span className="font-oswald text-3xl font-bold" style={{ color: isWin ? "#c0392b" : "#00e676" }}>
                   {result.opponentTime === -1 ? "ФС" : Math.round(result.opponentTime)}
                 </span>
                 <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.2)" }}>мс</span>
@@ -559,10 +520,7 @@ export default function Index() {
           {/* Stats */}
           <div className="flex gap-6 items-center">
             <div className="flex flex-col items-center gap-1">
-              <span
-                className="font-oswald text-xl font-bold"
-                style={{ color: result.ratingChange > 0 ? "#00e676" : "#c0392b" }}
-              >
+              <span className="font-oswald text-xl font-bold" style={{ color: result.ratingChange > 0 ? "#00e676" : "#c0392b" }}>
                 {result.ratingChange > 0 ? "+" : ""}{result.ratingChange}
               </span>
               <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.2)" }}>рейтинг</span>
@@ -582,37 +540,175 @@ export default function Index() {
               </>
             )}
           </div>
-
           {result.newStreak >= 5 && (
-            <div
-              className="px-4 py-1.5 border font-oswald text-xs tracking-widest uppercase"
-              style={{ borderColor: "#f39c12", color: "#f39c12" }}
-            >
+            <div className="px-4 py-1.5 border font-oswald text-xs tracking-widest uppercase" style={{ borderColor: "#f39c12", color: "#f39c12" }}>
               x2 НАГРАДА · СЕРИЯ {result.newStreak}
             </div>
           )}
         </div>
 
-        {/* Buttons */}
         <div className="flex flex-col gap-3 w-full">
-          <button
-            onClick={startMatch}
-            className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
-            style={{ backgroundColor: accentColor, color: isWin ? "#0f0f0f" : "#f5f5f5" }}
-          >
+          <button onClick={startMatch} className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase transition-all active:scale-95" style={{ backgroundColor: accentColor, color: isWin ? "#0f0f0f" : "#f5f5f5" }}>
             ЕЩЁ РАЗ
           </button>
-          <button
-            onClick={() => setScreen("home")}
-            className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase transition-all active:scale-95"
-            style={{
-              backgroundColor: "transparent",
-              color: "rgba(255,255,255,0.25)",
-              border: "1px solid rgba(255,255,255,0.08)",
-            }}
-          >
+          <button onClick={() => setScreen("home")} className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase transition-all active:scale-95" style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.25)", border: "1px solid rgba(255,255,255,0.08)" }}>
             ГЛАВНЫЙ ЭКРАН
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── LEADERBOARD ──
+  if (screen === "leaderboard") {
+    return (
+      <div className="flex flex-col h-dvh w-full overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        {/* Header */}
+        <div className="flex items-center gap-4 px-6 pt-10 pb-4">
+          <button onClick={() => setScreen("home")} className="active:opacity-60 transition-opacity">
+            <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
+          </button>
+          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white">Топ игроков</h2>
+        </div>
+
+        {/* My position block */}
+        {player && neighbors.length > 0 && (
+          <div className="mx-6 mb-4 border p-4" style={{ borderColor: "rgba(192,57,43,0.3)", backgroundColor: "rgba(192,57,43,0.05)" }}>
+            <span className="font-rubik text-[10px] uppercase tracking-widest mb-2 block" style={{ color: "rgba(255,255,255,0.3)" }}>Рядом с тобой</span>
+            {neighbors.map((n) => (
+              <div key={n.id} className="flex items-center gap-3 py-1.5">
+                <span className="font-oswald text-sm w-8 text-right" style={{ color: n.id === playerId ? "#c0392b" : "rgba(255,255,255,0.3)" }}>#{n.rank}</span>
+                <span className="font-rubik text-sm flex-1" style={{ color: n.id === playerId ? "#f5f5f5" : "rgba(255,255,255,0.45)", fontWeight: n.id === playerId ? 500 : 400 }}>
+                  {n.nickname} {n.id === playerId ? "← ты" : ""}
+                </span>
+                <span className="font-oswald text-sm font-bold" style={{ color: n.id === playerId ? "#c0392b" : "rgba(255,255,255,0.4)" }}>{n.rating}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Top list */}
+        <div className="flex-1 overflow-y-auto px-6 pb-8">
+          {loadingLB ? (
+            <div className="flex justify-center pt-8">
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>Загрузка…</span>
+            </div>
+          ) : leaderboard.length === 0 ? (
+            <div className="flex flex-col items-center pt-12 gap-3">
+              <Icon name="Trophy" size={32} style={{ color: "rgba(255,255,255,0.1)" }} />
+              <span className="font-rubik text-sm text-center" style={{ color: "rgba(255,255,255,0.25)" }}>
+                Сыграй первый матч —<br />и попади в таблицу
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-0">
+              {leaderboard.map((entry, idx) => {
+                const isMe = entry.id === playerId;
+                const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : null;
+                return (
+                  <div
+                    key={entry.id}
+                    className="flex items-center gap-3 py-3"
+                    style={{
+                      borderBottom: "1px solid rgba(255,255,255,0.04)",
+                      backgroundColor: isMe ? "rgba(192,57,43,0.06)" : "transparent",
+                    }}
+                  >
+                    <span className="font-oswald text-sm w-8 text-right" style={{ color: isMe ? "#c0392b" : "rgba(255,255,255,0.25)" }}>
+                      {medal || `#${entry.rank}`}
+                    </span>
+                    <span className="font-rubik text-sm flex-1" style={{ color: isMe ? "#f5f5f5" : "rgba(255,255,255,0.55)", fontWeight: isMe ? 500 : 400 }}>
+                      {entry.nickname}
+                    </span>
+                    <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.2)" }}>{entry.wins}W</span>
+                    <span className="font-oswald text-base font-bold ml-2" style={{ color: isMe ? "#c0392b" : "rgba(255,255,255,0.5)" }}>{entry.rating}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── PROFILE ──
+  if (screen === "profile") {
+    const totalGames = (player?.wins ?? 0) + (player?.losses ?? 0);
+    return (
+      <div className="flex flex-col h-dvh w-full overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        <div className="flex items-center gap-4 px-6 pt-10 pb-6">
+          <button onClick={() => setScreen("home")} className="active:opacity-60 transition-opacity">
+            <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.5)" }} />
+          </button>
+          <h2 className="font-oswald text-2xl font-bold uppercase tracking-wider text-white">Профиль</h2>
+        </div>
+
+        <div className="flex-1 px-6 flex flex-col gap-4 overflow-y-auto pb-8">
+          {/* Name + rating */}
+          <div className="border p-5 flex flex-col gap-1" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+            <span className="font-oswald text-2xl font-bold text-white">{player?.nickname ?? "—"}</span>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="font-oswald text-4xl font-bold" style={{ color: "#c0392b" }}>{rating}</span>
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>ELO</span>
+            </div>
+            {profileData && (
+              <span className="font-rubik text-sm mt-1" style={{ color: "#f39c12" }}>
+                Ты быстрее {profileData.percent_better}% игроков · #{profileData.rank} в мире
+              </span>
+            )}
+          </div>
+
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: "Победы", value: player?.wins ?? 0, color: "#00e676" },
+              { label: "Поражения", value: player?.losses ?? 0, color: "#c0392b" },
+              { label: "Матчей", value: totalGames, color: "#f5f5f5" },
+              { label: "Винрейт", value: profileData ? `${profileData.winrate}%` : (totalGames > 0 ? `${Math.round((player!.wins / totalGames) * 100)}%` : "—"), color: "#f39c12" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="border p-4 flex flex-col gap-1" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+                <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>{label}</span>
+                <span className="font-oswald text-2xl font-bold" style={{ color }}>{value}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Reaction stats */}
+          <div className="border p-4 flex flex-col gap-3" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+            <span className="font-rubik text-[10px] uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>Реакция</span>
+            <div className="flex gap-6">
+              <div className="flex flex-col gap-0.5">
+                <span className="font-oswald text-2xl font-bold" style={{ color: "#00e676" }}>
+                  {player?.best_reaction ? `${player.best_reaction}мс` : "—"}
+                </span>
+                <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.2)" }}>лучшая</span>
+              </div>
+              <div className="w-px" style={{ backgroundColor: "rgba(255,255,255,0.07)" }} />
+              <div className="flex flex-col gap-0.5">
+                <span className="font-oswald text-2xl font-bold" style={{ color: "rgba(255,255,255,0.6)" }}>
+                  {profileData?.avg_reaction ? `${profileData.avg_reaction}мс` : "—"}
+                </span>
+                <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.2)" }}>средняя</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Streak */}
+          <div className="border p-4 flex justify-between items-center" style={{ borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+            <div>
+              <span className="font-rubik text-[10px] uppercase tracking-widest block mb-1" style={{ color: "rgba(255,255,255,0.25)" }}>Текущая серия</span>
+              <span className="font-oswald text-2xl font-bold" style={{ color: streak > 0 ? "#f39c12" : "rgba(255,255,255,0.3)" }}>
+                {streak > 0 ? `🔥 ${streak}` : "—"}
+              </span>
+            </div>
+            <div className="text-right">
+              <span className="font-rubik text-[10px] uppercase tracking-widest block mb-1" style={{ color: "rgba(255,255,255,0.25)" }}>Рекорд серии</span>
+              <span className="font-oswald text-2xl font-bold" style={{ color: "rgba(255,255,255,0.5)" }}>
+                {player?.max_streak || "—"}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     );
