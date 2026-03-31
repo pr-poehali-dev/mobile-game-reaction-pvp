@@ -134,7 +134,6 @@ export default function Index() {
 
   // Duel
   const [duelRoom, setDuelRoom] = useState<DuelRoom | null>(null);
-  const [duelMode, setDuelMode] = useState<"host" | "guest">("host");
   const [duelJoinCode, setDuelJoinCode] = useState("");
   const [duelJoinError, setDuelJoinError] = useState("");
   const [duelCopied, setDuelCopied] = useState(false);
@@ -531,7 +530,6 @@ export default function Index() {
       .then(d => {
         if (d.room) {
           setDuelRoom(d.room);
-          setDuelMode("host");
           setScreen("duel-lobby");
           // Поллинг — ждём гостя
           duelPollRef.current = setInterval(() => {
@@ -563,24 +561,12 @@ export default function Index() {
         if (d.error) { setDuelJoinError(d.error); return; }
         if (d.room) {
           setDuelRoom(d.room);
-          setDuelMode("guest");
           setScreen("duel-lobby");
         }
       });
   }, []);
 
-  // ── DUEL: отправить результат ──
-  const submitDuelResult = useCallback((reactionTime: number) => {
-    const pid = localStorage.getItem("ne_slomaisa_player_id");
-    if (!pid || !duelRoom) return;
-    fetch(`${DUEL_API}/?action=submit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
-      body: JSON.stringify({ code: duelRoom.id, reaction_time: reactionTime }),
-    })
-      .then(r => r.json())
-      .then(d => { if (d.room) setDuelRoom(d.room); });
-  }, [duelRoom]);
+
 
   // ── DUEL: стоп поллинг ──
   const stopDuelPoll = useCallback(() => {
@@ -653,7 +639,7 @@ export default function Index() {
   }, [loadShop]);
 
   // ── SHOP: использовать расходник (контекстный оффер) ──
-  const useConsumable = useCallback((effectKey: string) => {
+  const consumeItem = useCallback((effectKey: string) => {
     const pid = localStorage.getItem("ne_slomaisa_player_id");
     if (!pid) return;
     fetch(`${SHOP_API}/?action=use`, {
@@ -1050,7 +1036,7 @@ export default function Index() {
             ЕЩЁ РАЗ
           </button>
           <button
-            onClick={() => { setDuelJoinCode(""); setDuelJoinError(""); createDuelRoom(); }}
+            onClick={createDuelRoom}
             className="w-full h-12 font-oswald text-sm tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
             style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.15)" }}
           >
@@ -1165,7 +1151,6 @@ export default function Index() {
     const profProgress = getProgressToNext(rating);
     const winrate = totalGames > 0 ? Math.round(((player?.wins ?? 0) / totalGames) * 100) : 0;
     const pctBetter = profileData?.percent_better ?? null;
-    const pctWorse = pctBetter !== null ? (100 - pctBetter) : null;
     return (
       <div className="flex flex-col h-dvh w-full overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
         <div className="flex items-center gap-4 px-6 pt-10 pb-4">
@@ -1211,11 +1196,11 @@ export default function Index() {
               </div>
             </div>
 
-            {/* % игроков — инвертировано */}
-            {pctWorse !== null && (
+            {/* % игроков */}
+            {pctBetter !== null && (
               <div className="border px-4 py-2.5 flex items-center justify-center" style={{ borderColor: "rgba(243,156,18,0.3)", backgroundColor: "rgba(243,156,18,0.06)" }}>
                 <span className="font-oswald text-lg font-bold uppercase tracking-wider" style={{ color: "#f39c12" }}>
-                  🔥 быстрее {100 - pctWorse}% игроков
+                  🔥 быстрее {pctBetter}% игроков
                 </span>
               </div>
             )}
@@ -1382,7 +1367,6 @@ export default function Index() {
 
   // ── DUEL LOBBY (комната создана / ожидание) ──
   if (screen === "duel-lobby" && duelRoom) {
-    const pid = localStorage.getItem("ne_slomaisa_player_id") || "";
     const isReady = duelRoom.status === "ready";
     const isFinished = duelRoom.status === "finished";
 
@@ -1713,32 +1697,39 @@ export default function Index() {
       )}
 
       {/* Контекстный оффер */}
-      {contextOffer && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center pb-8 px-6" style={{ backgroundColor: "rgba(0,0,0,0.6)" }}>
-          <div className="w-full max-w-sm border p-5 flex flex-col gap-4 animate-result-in" style={{ backgroundColor: "#161616", borderColor: "rgba(192,57,43,0.4)" }}>
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">🔄</span>
-              <span className="font-rubik text-sm flex-1" style={{ color: "rgba(255,255,255,0.7)" }}>{contextOffer.message}</span>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => buyItem(contextOffer.itemId)}
-                className="flex-1 h-11 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95"
-                style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
-              >
-                Купить · 10⚡
-              </button>
-              <button
-                onClick={() => setContextOffer(null)}
-                className="h-11 px-4 font-oswald text-sm uppercase transition-all active:scale-95"
-                style={{ backgroundColor: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.1)" }}
-              >
-                Нет
-              </button>
+      {contextOffer && (() => {
+        const item = shopItems.find(i => i.id === contextOffer.itemId);
+        const hasInInventory = shopInventory["retry_1"]?.quantity > 0 || shopInventory["retry_3"]?.quantity > 0;
+        const price = item?.price_coins ?? 10;
+        const canAffordOffer = coins >= price;
+        return (
+          <div className="fixed inset-0 z-40 flex items-end justify-center pb-8 px-6" style={{ backgroundColor: "rgba(0,0,0,0.6)" }}>
+            <div className="w-full max-w-sm border p-5 flex flex-col gap-4 animate-result-in" style={{ backgroundColor: "#161616", borderColor: "rgba(192,57,43,0.4)" }}>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🔄</span>
+                <span className="font-rubik text-sm flex-1" style={{ color: "rgba(255,255,255,0.7)" }}>{contextOffer.message}</span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => hasInInventory ? consumeItem("retry") : buyItem(contextOffer.itemId)}
+                  disabled={!hasInInventory && !canAffordOffer}
+                  className="flex-1 h-11 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95"
+                  style={{ backgroundColor: (!hasInInventory && !canAffordOffer) ? "rgba(255,255,255,0.05)" : "#c0392b", color: "#f5f5f5" }}
+                >
+                  {hasInInventory ? "Использовать" : canAffordOffer ? `Купить · ${price}⚡` : "Мало монет"}
+                </button>
+                <button
+                  onClick={() => setContextOffer(null)}
+                  className="h-11 px-4 font-oswald text-sm uppercase transition-all active:scale-95"
+                  style={{ backgroundColor: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.1)" }}
+                >
+                  Нет
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Мягкий промпт: задай ник */}
       {savePrompt && (
