@@ -1,0 +1,1 @@
+ALTER TABLE t_p67729910_mobile_game_reaction.players ALTER COLUMN coins SET DEFAULT 100;

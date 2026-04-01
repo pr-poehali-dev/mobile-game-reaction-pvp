@@ -335,7 +335,7 @@ export default function Index() {
     const streakLost = !isWin && currentStreak >= 2 ? currentStreak : undefined;
     const newStreak = isWin ? currentStreak + 1 : 0;
     const streakBonus = newStreak >= 5 ? 2 : 1;
-    const coins_earned = (isWin ? 20 : 5) * streakBonus;
+    const coins_earned = (isWin ? 15 : -3) * streakBonus;
 
     const prevRating = curPlayer?.rating ?? 1000;
     const newRatingVal = Math.max(0, prevRating + ratingDelta);
@@ -359,7 +359,7 @@ export default function Index() {
       losses: curPlayer.losses + (isWin ? 0 : 1),
       streak: newStreak,
       max_streak: Math.max(curPlayer.max_streak, newStreak),
-      coins: curPlayer.coins + coins_earned,
+      coins: Math.max(0, curPlayer.coins + coins_earned),
       best_reaction: (playerMs > 0 && playerMs < 5000)
         ? (curPlayer.best_reaction ? Math.min(curPlayer.best_reaction, playerMs) : playerMs)
         : curPlayer.best_reaction,
@@ -1046,7 +1046,7 @@ export default function Index() {
             </div>
             <div className="w-px h-8" style={{ backgroundColor: "rgba(255,255,255,0.07)" }} />
             <div className="flex flex-col items-center gap-1">
-              <span className="font-oswald text-xl font-bold" style={{ color: "#f39c12" }}>+{result.coinsEarned}⚡</span>
+              <span className="font-oswald text-xl font-bold" style={{ color: result.coinsEarned >= 0 ? "#f39c12" : "#e74c3c" }}>{result.coinsEarned > 0 ? "+" : ""}{result.coinsEarned}⚡</span>
               <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.2)" }}>монет</span>
             </div>
             {result.newStreak > 0 && (
