@@ -193,6 +193,9 @@ export default function Index() {
   // Чёрный экран near miss перед показом результата
   const [nearMissBlackout, setNearMissBlackout] = useState(false);
 
+  // Промо-экран разрешения пушей
+  const [pushPromo, setPushPromo] = useState(false);
+
   const greenTimeRef = useRef<number>(0);
   const gameActiveRef = useRef(false);
   const tensionTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -446,13 +449,11 @@ export default function Index() {
       setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Ты почти вытянул. Ещё одна попытка?" }), 400);
     }
 
-    // Push permission: запросить после 3-го матча, если ещё не запрашивали
+    // Push permission: показать свой экран после 3-го матча
     const totalPlayed = (newPlayer?.wins ?? 0) + (newPlayer?.losses ?? 0);
     const pushAsked = localStorage.getItem("push_asked");
     if (!pushAsked && totalPlayed >= 3) {
-      localStorage.setItem("push_asked", "1");
-      const pid = localStorage.getItem("ne_slomaisa_player_id");
-      if (pid) setTimeout(() => requestPushPermission(pid), 2000);
+      setTimeout(() => setPushPromo(true), 1800);
     }
 
     // Near miss: чёрный экран с текстом "ты был очень близко"
@@ -840,6 +841,70 @@ export default function Index() {
   const coins = player?.coins ?? 150;
   const currentLeague = getLeague(rating);
   const leagueProgress = getProgressToNext(rating);
+
+  // ═══════════════════ PUSH PROMO OVERLAY ═══════════════════
+  if (pushPromo) {
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center px-8 z-50 animate-fade-in" style={{ backgroundColor: "#0f0f0f" }}>
+        <div className="flex flex-col items-center gap-6 w-full max-w-xs">
+          {/* Иконка */}
+          <div className="w-16 h-16 flex items-center justify-center rounded-full" style={{ backgroundColor: "rgba(192,57,43,0.12)", border: "2px solid rgba(192,57,43,0.3)" }}>
+            <span className="text-3xl">⚡</span>
+          </div>
+
+          {/* Текст */}
+          <div className="flex flex-col items-center gap-2 text-center">
+            <span className="font-oswald text-2xl font-bold uppercase tracking-wide text-white">
+              Не пропусти реванш
+            </span>
+            <span className="font-rubik text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>
+              Если ты был в шаге от победы — напомним. Без спама, только по делу.
+            </span>
+          </div>
+
+          {/* Примеры пушей */}
+          <div className="w-full flex flex-col gap-2">
+            {[
+              "«17 мс… ты был очень близко»",
+              "«Ещё 1 победа до Серебра»",
+              "«Серия прервана. Вернись»",
+            ].map((ex, i) => (
+              <div key={i} className="px-3 py-2 flex items-center gap-2" style={{ backgroundColor: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: "#c0392b" }} />
+                <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>{ex}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Кнопки */}
+          <div className="flex flex-col gap-3 w-full">
+            <button
+              onClick={async () => {
+                setPushPromo(false);
+                localStorage.setItem("push_asked", "1");
+                const pid = localStorage.getItem("ne_slomaisa_player_id");
+                if (pid) await requestPushPermission(pid);
+              }}
+              className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase active:scale-95 transition-all"
+              style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}
+            >
+              ВКЛЮЧИТЬ
+            </button>
+            <button
+              onClick={() => {
+                setPushPromo(false);
+                localStorage.setItem("push_asked", "1");
+              }}
+              className="font-rubik text-xs text-center active:opacity-60"
+              style={{ color: "rgba(255,255,255,0.2)" }}
+            >
+              не сейчас
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ═══════════════════ SCREENS ═══════════════════
 
