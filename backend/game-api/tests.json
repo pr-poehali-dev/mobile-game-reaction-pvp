@@ -39,6 +39,15 @@
       "expectedStatus": 400,
       "expectedBody": {"error": "player_id required"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Push token — missing player_id",
+      "method": "POST",
+      "path": "/?action=push-token",
+      "body": {"push_token": "test"},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
     }
   ]
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import { getLeague, getProgressToNext, getPressureMessage } from "@/lib/leagues";
+import { requestPushPermission, schedulePushAfterMatch } from "@/lib/push";
 
 const API       = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279";
 const DUEL_API  = "https://functions.poehali.dev/fd904cf2-ca8c-4cda-9ec3-e5fb219c5102";
@@ -224,6 +225,10 @@ export default function Index() {
               total_players: d.total_players,
             });
           }
+          if (autoStartRef.current) {
+            autoStartRef.current = false;
+            setTimeout(() => startMatchRef.current?.(), 500);
+          }
         })
         .catch(() => {});
       // Подгрузить задания для бейджа
@@ -249,6 +254,19 @@ export default function Index() {
           }
         })
         .catch(() => {});
+    }
+  }, []);
+
+  const autoStartRef = useRef(false);
+   
+  const startMatchRef = useRef<(() => void) | null>(null);
+
+  // ── DEEP LINK из push: ?autostart=1 ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("autostart") === "1") {
+      window.history.replaceState({}, "", window.location.pathname);
+      autoStartRef.current = true;
     }
   }, []);
 
@@ -301,13 +319,13 @@ export default function Index() {
   }, []);
 
   // ── SAVE RESULT TO SERVER ──
-  const saveResult = useCallback((type: ResultType, reactionTime: number | null, newPlayer: Player) => {
+  const saveResult = useCallback((type: ResultType, reactionTime: number | null, newPlayer: Player, nearMissDiff?: number) => {
     const pid = localStorage.getItem("ne_slomaisa_player_id");
     if (!pid) return;
     fetch(`${API}/?action=save-result`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Player-Id": pid },
-      body: JSON.stringify({ result: type, reaction_time: reactionTime }),
+      body: JSON.stringify({ result: type, reaction_time: reactionTime, near_miss_diff: nearMissDiff ?? null }),
     })
       .then(r => r.json())
       .then(d => {
@@ -393,9 +411,17 @@ export default function Index() {
       nearMiss,
     });
 
-    saveResult(type, playerMs > 0 && playerMs < 5000 ? playerMs : null, newPlayer!);
+    const nearMissDiffMs = nearMiss && playerMs > 0 && opponentMs > 0
+      ? Math.abs(playerMs - opponentMs)
+      : undefined;
+
+    saveResult(type, playerMs > 0 && playerMs < 5000 ? playerMs : null, newPlayer!, nearMissDiffMs);
     reportChallenge(type);
     trackEvent("match_result", { result: type, streak: newStreak, rating: newRatingVal, ...(nearMiss ? { near_miss: nearMiss } : {}) });
+
+    // Запускаем отложенный push после матча (25 мин)
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (pid) schedulePushAfterMatch(pid);
 
     // Режим НЕ СЛОМАЙСЯ x10 — обновляем счётчик
     if (enduranceActiveRef.current) {
@@ -418,6 +444,15 @@ export default function Index() {
       setTimeout(() => setContextOffer({ itemId: "retry_1", message: `${Math.abs(playerMs - opponentMs)}мс — ты был быстрее. Переиграть?` }), 400);
     } else if (!isWin && nearMiss === "edge") {
       setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Ты почти вытянул. Ещё одна попытка?" }), 400);
+    }
+
+    // Push permission: запросить после 3-го матча, если ещё не запрашивали
+    const totalPlayed = (newPlayer?.wins ?? 0) + (newPlayer?.losses ?? 0);
+    const pushAsked = localStorage.getItem("push_asked");
+    if (!pushAsked && totalPlayed >= 3) {
+      localStorage.setItem("push_asked", "1");
+      const pid = localStorage.getItem("ne_slomaisa_player_id");
+      if (pid) setTimeout(() => requestPushPermission(pid), 2000);
     }
 
     // Near miss: чёрный экран с текстом "ты был очень близко"
@@ -526,6 +561,9 @@ export default function Index() {
       }, delay);
     }, 2200 + Math.random() * 300);
   }, [runTensionEffects, finishMatch]);
+
+  // Регистрируем startMatch в ref для deep link
+  useEffect(() => { startMatchRef.current = startMatch; }, [startMatch]);
 
   // ── PLAYER TAP ──
   const handleGameTap = useCallback(() => {

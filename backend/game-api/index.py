@@ -185,14 +185,18 @@ def handler(event: dict, context) -> dict:
             new_total = new_total + rt
             new_count = new_count + 1
 
+        near_miss_diff = body.get("near_miss_diff")  # мс разницы при near miss
+        last_result = result_type  # win / lose / false_start
+
         cur.execute(
             f"""UPDATE {SCHEMA}.players SET
                 rating=%s, wins=%s, losses=%s, streak=%s, max_streak=%s,
                 coins=%s, best_reaction=%s, total_reaction=%s, reaction_count=%s,
-                last_played_at=NOW()
+                last_played_at=NOW(), last_result=%s, near_miss_diff=%s
                 WHERE id=%s RETURNING *""",
             (new_rating, new_wins, new_losses, new_streak, new_max_streak,
-             new_coins, new_best, new_total, new_count, player_id)
+             new_coins, new_best, new_total, new_count,
+             last_result, near_miss_diff, player_id)
         )
         updated = dict(cur.fetchone())
         conn.commit()
@@ -332,5 +336,24 @@ def handler(event: dict, context) -> dict:
         if not row:
             return resp(404, {"error": "player not found"})
         return resp(200, {"player": dict(row)})
+
+    # ── POST /push-token — сохранить Web Push subscription ──
+    if method == "POST" and (action == "push-token" or "/push-token" in path):
+        if not player_id:
+            return resp(400, {"error": "player_id required"})
+        push_token = body.get("push_token")
+        if not push_token:
+            return resp(400, {"error": "push_token required"})
+
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            f"UPDATE {SCHEMA}.players SET push_token=%s, push_token_updated_at=NOW() WHERE id=%s",
+            (push_token, player_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return resp(200, {"ok": True})
 
     return resp(404, {"error": "not found"})

@@ -1,0 +1,25 @@
+{
+  "tests": [
+    {
+      "name": "CORS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Run scheduler (no FCM key — ok)",
+      "method": "GET",
+      "path": "/?action=run",
+      "expectedStatus": 200,
+      "expectedBody": { "ok": true },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Send one — missing player_id",
+      "method": "POST",
+      "path": "/?action=send_one",
+      "body": {},
+      "expectedStatus": 400
+    }
+  ]
+}
