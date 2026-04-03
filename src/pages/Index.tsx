@@ -8,7 +8,7 @@ const CHALL_API = "https://functions.poehali.dev/741e5a6a-988f-460f-a7a9-c35ed91
 const SHOP_API  = "https://functions.poehali.dev/ec65f2ad-bca4-448e-aadc-868e4837731e";
 
 // ─────────────── TYPES ───────────────
-type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile" | "duel-lobby" | "duel-wait" | "challenges" | "shop";
+type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile" | "duel-lobby" | "duel-wait" | "challenges" | "shop" | "endurance";
 type GamePhase = "wait" | "tension" | "action" | "done";
 type ResultType = "win" | "lose" | "false_start";
 
@@ -184,15 +184,27 @@ export default function Index() {
   const [claimingChallengeId, setClaimingChallengeId] = useState<number | null>(null);
   const [claimedIds, setClaimedIds] = useState<Set<number>>(new Set());
 
+  // Режим "НЕ СЛОМАЙСЯ x10"
+  const [enduranceActive, setEnduranceActive] = useState(false);
+  const [enduranceCount, setEnduranceCount] = useState(0); // текущая серия в режиме
+  const enduranceGoal = 10;
+
+  // Чёрный экран near miss перед показом результата
+  const [nearMissBlackout, setNearMissBlackout] = useState(false);
+
   const greenTimeRef = useRef<number>(0);
   const gameActiveRef = useRef(false);
   const tensionTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const mainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phaseRef = useRef<GamePhase>("wait");
   const playerRef = useRef<Player | null>(null);
+  const enduranceActiveRef = useRef(false);
+  const enduranceCountRef = useRef(0);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { playerRef.current = player; }, [player]);
+  useEffect(() => { enduranceActiveRef.current = enduranceActive; }, [enduranceActive]);
+  useEffect(() => { enduranceCountRef.current = enduranceCount; }, [enduranceCount]);
 
   // ── INIT PLAYER ──
   useEffect(() => {
@@ -385,6 +397,18 @@ export default function Index() {
     reportChallenge(type);
     trackEvent("match_result", { result: type, streak: newStreak, rating: newRatingVal, ...(nearMiss ? { near_miss: nearMiss } : {}) });
 
+    // Режим НЕ СЛОМАЙСЯ x10 — обновляем счётчик
+    if (enduranceActiveRef.current) {
+      if (isWin) {
+        const next = enduranceCountRef.current + 1;
+        setEnduranceCount(next);
+        enduranceCountRef.current = next;
+      } else {
+        setEnduranceCount(0);
+        enduranceCountRef.current = 0;
+      }
+    }
+
     // Контекстный оффер — усиленный
     if (type === "false_start") {
       setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Палец дёрнулся раньше. Вернуть попытку?" }), 400);
@@ -396,7 +420,13 @@ export default function Index() {
       setTimeout(() => setContextOffer({ itemId: "retry_1", message: "Ты почти вытянул. Ещё одна попытка?" }), 400);
     }
 
-    const delay = nearMiss ? 500 : 350;
+    // Near miss: чёрный экран с текстом "ты был очень близко"
+    if (nearMiss === "close" && !isWin) {
+      setNearMissBlackout(true);
+      setTimeout(() => setNearMissBlackout(false), 1400);
+    }
+
+    const delay = nearMiss ? 1500 : 350;
     setTimeout(() => {
       setScreenFlash("none");
       setScreen("result");
@@ -888,6 +918,14 @@ export default function Index() {
             >
               {btnLabel}
             </button>
+            <button
+              onClick={() => { setEnduranceActive(false); setEnduranceCount(0); setScreen("endurance"); }}
+              className="w-full h-10 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+              style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.35)", border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              <Icon name="Flame" size={13} />
+              НЕ СЛОМАЙСЯ x10
+            </button>
           </div>
         </div>
 
@@ -980,6 +1018,12 @@ export default function Index() {
       >
         {(fakeFlash || almostGreen) && (
           <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: "#00e676", opacity: fakeFlash ? 0.07 : 0.12, zIndex: 10 }} />
+        )}
+        {nearMissBlackout && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none animate-fade-in" style={{ backgroundColor: "#000", zIndex: 50 }}>
+            <span className="font-oswald text-lg tracking-[0.3em] uppercase" style={{ color: "rgba(255,255,255,0.15)" }}>…</span>
+            <span className="font-oswald text-2xl font-bold uppercase tracking-wide" style={{ color: "rgba(255,255,255,0.5)" }}>ты был очень близко</span>
+          </div>
         )}
         <div className="absolute top-12 inset-x-0 flex justify-center" style={{ color: isAction ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.12)" }}>
           <span className="font-rubik text-[11px] uppercase tracking-widest">{isAction ? "нажимай" : "не трогай экран"}</span>
@@ -1108,6 +1152,32 @@ export default function Index() {
             </div>
           )}
 
+          {/* Психологический бейдж */}
+          {(() => {
+            if (result.newStreak === 10) return (
+              <div className="w-full border px-4 py-2.5 flex items-center gap-3 animate-result-in" style={{ borderColor: "rgba(0,230,118,0.5)", backgroundColor: "rgba(0,230,118,0.07)" }}>
+                <span className="text-xl">🏆</span>
+                <div className="flex flex-col gap-0">
+                  <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#00e676" }}>СТАЛЬНЫЕ НЕРВЫ</span>
+                  <span className="font-rubik text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>10 побед подряд</span>
+                </div>
+              </div>
+            );
+            if (result.newStreak === 5) return (
+              <div className="w-full border px-4 py-2.5 flex items-center gap-3 animate-result-in" style={{ borderColor: "rgba(243,156,18,0.4)", backgroundColor: "rgba(243,156,18,0.06)" }}>
+                <span className="text-xl">🔥</span>
+                <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#f39c12" }}>НЕ СЛОМАЛСЯ ПОД ДАВЛЕНИЕМ</span>
+              </div>
+            );
+            if (isWin && result.playerTime < 200) return (
+              <div className="w-full border px-4 py-2.5 flex items-center gap-3 animate-result-in" style={{ borderColor: "rgba(0,230,118,0.3)", backgroundColor: "rgba(0,230,118,0.05)" }}>
+                <span className="text-xl">⚡</span>
+                <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#00e676" }}>МОЛНИЕНОСНАЯ РЕАКЦИЯ</span>
+              </div>
+            );
+            return null;
+          })()}
+
           {/* Боль потери серии — усиленная */}
           {result.streakLost && result.streakLost >= 5 && (
             <div className="w-full border px-4 py-4 flex flex-col gap-2 animate-result-in" style={{ borderColor: "rgba(192,57,43,0.6)", backgroundColor: "rgba(192,57,43,0.1)" }}>
@@ -1176,8 +1246,12 @@ export default function Index() {
         </div>
 
         <div className="flex flex-col gap-3 w-full">
-          <button onClick={startMatch} className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase transition-all active:scale-95" style={{ backgroundColor: accentColor, color: isWin ? "#0f0f0f" : "#f5f5f5" }}>
-            ЕЩЁ РАЗ
+          <button
+            onClick={() => { if (enduranceActive) { setScreen("endurance"); } else { startMatch(); } }}
+            className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
+            style={{ backgroundColor: accentColor, color: isWin ? "#0f0f0f" : "#f5f5f5" }}
+          >
+            {enduranceActive ? `НЕ СЛОМАЙСЯ (${enduranceCount}/${enduranceGoal})` : "ЕЩЁ РАЗ"}
           </button>
           {isWin && (
             <button
@@ -1420,6 +1494,30 @@ export default function Index() {
             </div>
           </div>
 
+          {/* Психологический статус */}
+          {(() => {
+            const streak = player?.streak ?? 0;
+            const maxStreak = player?.max_streak ?? 0;
+            const losses = player?.losses ?? 0;
+            const wins = player?.wins ?? 0;
+            let statusText = "";
+            let statusColor = "#f5f5f5";
+            let statusBg = "rgba(255,255,255,0.04)";
+            let statusBorder = "rgba(255,255,255,0.1)";
+            if (streak >= 10) { statusText = `СТАЛЬНЫЕ НЕРВЫ — СЕРИЯ ${streak}`; statusColor = "#00e676"; statusBg = "rgba(0,230,118,0.07)"; statusBorder = "rgba(0,230,118,0.35)"; }
+            else if (streak >= 5) { statusText = `ВЫДЕРЖАЛ ${streak} РАЗ ПОДРЯД`; statusColor = "#00e676"; statusBg = "rgba(0,230,118,0.06)"; statusBorder = "rgba(0,230,118,0.25)"; }
+            else if (streak >= 2) { statusText = `НЕ ЛОМАЕТСЯ — ${streak} ПОДРЯД`; statusColor = "#f39c12"; statusBg = "rgba(243,156,18,0.06)"; statusBorder = "rgba(243,156,18,0.25)"; }
+            else if (losses > wins && losses > 3) { statusText = `СЛОМАЛСЯ ${losses} РАЗ — ВРЕМЯ ДОКАЗАТЬ`; statusColor = "#c0392b"; statusBg = "rgba(192,57,43,0.06)"; statusBorder = "rgba(192,57,43,0.3)"; }
+            else if (maxStreak >= 5) { statusText = `ЛУЧШИЙ СТРИК: ${maxStreak} — ПОВТОРИ`; statusColor = "#f39c12"; statusBg = "rgba(243,156,18,0.06)"; statusBorder = "rgba(243,156,18,0.2)"; }
+            else if (wins === 0) { statusText = "ПЕРВАЯ ПОБЕДА РЕШАЕТ ВСЁ"; statusColor = "rgba(255,255,255,0.4)"; }
+            else { statusText = "В ПОИСКЕ СЕБЯ"; statusColor = "rgba(255,255,255,0.3)"; }
+            return (
+              <div className="border px-4 py-3 flex items-center justify-center" style={{ borderColor: statusBorder, backgroundColor: statusBg }}>
+                <span className="font-oswald text-sm font-bold uppercase tracking-[0.15em] text-center" style={{ color: statusColor }}>{statusText}</span>
+              </div>
+            );
+          })()}
+
           {/* Победы / Поражения / Матчи — без убивающего винрейта */}
           <div className="grid grid-cols-3 gap-3">
             {[
@@ -1617,6 +1715,81 @@ export default function Index() {
           </button>
         )}
         {!isReady && <div />}
+      </div>
+    );
+  }
+
+  // ── ENDURANCE (НЕ СЛОМАЙСЯ x10) ──
+  if (screen === "endurance") {
+    const isDone = enduranceCount >= enduranceGoal;
+    return (
+      <div className="flex flex-col items-center justify-between h-dvh w-full px-6 py-12" style={{ backgroundColor: "#0f0f0f" }}>
+        <div className="w-full flex items-center gap-4">
+          <button onClick={() => { setScreen("home"); setEnduranceActive(false); setEnduranceCount(0); }} className="active:opacity-60">
+            <Icon name="ArrowLeft" size={20} style={{ color: "rgba(255,255,255,0.4)" }} />
+          </button>
+          <span className="font-oswald text-lg font-bold uppercase tracking-wider text-white">Не сломайся</span>
+        </div>
+
+        <div className="flex flex-col items-center gap-8 flex-1 justify-center">
+          <span className="font-oswald font-bold uppercase tracking-[0.2em]" style={{ fontSize: "clamp(2rem, 10vw, 3rem)", color: "#c0392b" }}>
+            {isDone ? "ТЫ ВЫДЕРЖАЛ" : "НЕ СЛОМАЙСЯ"}
+          </span>
+          <span className="font-rubik text-sm text-center" style={{ color: "rgba(255,255,255,0.35)" }}>
+            {isDone ? "10 из 10. Стальные нервы." : `Выиграй ${enduranceGoal} матчей подряд без поражений`}
+          </span>
+
+          {/* Прогресс-ячейки */}
+          <div className="flex gap-2 flex-wrap justify-center">
+            {Array.from({ length: enduranceGoal }).map((_, i) => (
+              <div key={i} className="w-9 h-9 flex items-center justify-center font-oswald text-sm font-bold"
+                style={{
+                  backgroundColor: i < enduranceCount ? "rgba(0,230,118,0.15)" : "rgba(255,255,255,0.04)",
+                  border: `2px solid ${i < enduranceCount ? "#00e676" : "rgba(255,255,255,0.1)"}`,
+                  color: i < enduranceCount ? "#00e676" : "rgba(255,255,255,0.2)",
+                }}>
+                {i < enduranceCount ? "✓" : i + 1}
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col items-center gap-1">
+            <span className="font-oswald text-4xl font-bold" style={{ color: enduranceCount === 0 ? "rgba(255,255,255,0.15)" : "#00e676" }}>
+              {enduranceCount} / {enduranceGoal}
+            </span>
+            <span className="font-rubik text-xs uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.2)" }}>выдержал</span>
+          </div>
+
+          {isDone && (
+            <div className="border px-6 py-3 flex items-center gap-3 animate-result-in" style={{ borderColor: "rgba(0,230,118,0.4)", backgroundColor: "rgba(0,230,118,0.07)" }}>
+              <span className="text-xl">🏆</span>
+              <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#00e676" }}>СТАЛЬНЫЕ НЕРВЫ</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 w-full">
+          {isDone ? (
+            <button onClick={() => { setEnduranceCount(0); startMatch(); }}
+              className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase active:scale-95 transition-all"
+              style={{ backgroundColor: "#00e676", color: "#0f0f0f" }}>
+              ЕЩЁ РАЗ
+            </button>
+          ) : (
+            <button onClick={() => { if (!enduranceActive) { setEnduranceActive(true); setEnduranceCount(0); } startMatch(); }}
+              className="w-full h-14 font-oswald text-lg font-bold tracking-[0.2em] uppercase active:scale-95 transition-all"
+              style={{ backgroundColor: "#c0392b", color: "#f5f5f5" }}>
+              {enduranceActive ? `ПРОДОЛЖИТЬ (${enduranceCount}/${enduranceGoal})` : "НАЧАТЬ ВЫЗОВ"}
+            </button>
+          )}
+          {enduranceActive && !isDone && (
+            <button onClick={() => { setEnduranceActive(false); setEnduranceCount(0); setScreen("home"); }}
+              className="font-rubik text-xs text-center active:opacity-60"
+              style={{ color: "rgba(255,255,255,0.15)" }}>
+              сдаться
+            </button>
+          )}
+        </div>
       </div>
     );
   }
