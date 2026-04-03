@@ -282,11 +282,12 @@ export default function Index() {
   // ── TENSION ──
   const runTensionEffects = useCallback((totalDelay: number) => {
     const effects: ReturnType<typeof setTimeout>[] = [];
-    if (Math.random() < 0.30) {
+    const focusActive = (shopBoosts["focus"] ?? 0) > 0;
+    if (!focusActive && Math.random() < 0.30) {
       const t = Math.random() * totalDelay * 0.6 + 300;
       effects.push(setTimeout(() => { setFakeFlash(true); setTimeout(() => setFakeFlash(false), 60 + Math.random() * 40); }, t));
     }
-    if (Math.random() < 0.20) {
+    if (!focusActive && Math.random() < 0.20) {
       const t = Math.random() * totalDelay * 0.5 + 500;
       effects.push(setTimeout(() => { setAlmostGreen(true); setTimeout(() => setAlmostGreen(false), 80 + Math.random() * 40); }, t));
     }
@@ -827,14 +828,33 @@ export default function Index() {
     return () => clearInterval(id);
   }, []);
 
+  // ── ЭКИПИРОВАННЫЕ ПРЕДМЕТЫ ──
+  const equippedTheme = Object.entries(shopInventory).find(([id, v]) => v.equipped && id.startsWith("theme_"))?.[0];
+  const equippedSignal = Object.entries(shopInventory).find(([id, v]) => v.equipped && id.startsWith("signal_"))?.[0];
+  const equippedWinFx = Object.entries(shopInventory).find(([id, v]) => v.equipped && id.startsWith("win_"))?.[0];
+  const equippedFrame = Object.entries(shopInventory).find(([id, v]) => v.equipped && id.startsWith("frame_"))?.[0];
+  const equippedTitle = Object.entries(shopInventory).find(([id, v]) => v.equipped && id.startsWith("title_"))?.[0];
+
+  // Цвета тем
+  const THEMES: Record<string, { wait: string; action: string; accent: string; text: string }> = {
+    theme_neon:  { wait: "#0a0a1a", action: "#7c3aed", accent: "#a78bfa", text: "#f5f5f5" },
+    theme_ice:   { wait: "#071820", action: "#0ea5e9", accent: "#38bdf8", text: "#f0f9ff" },
+    theme_fire:  { wait: "#1a0800", action: "#ea580c", accent: "#fb923c", text: "#fff7ed" },
+  };
+  const theme = equippedTheme ? THEMES[equippedTheme] : null;
+
   const getBgColor = () => {
     if (screenFlash === "red") return "#c0392b";
-    if (screenFlash === "green") return "#00e676";
-    if (phase === "action") return "#00e676";
+    if (screenFlash === "green") return theme?.action ?? "#00e676";
+    if (phase === "action") return theme?.action ?? "#00e676";
     if (fakeFlash) return "#131313";
-    if (almostGreen) return "#0d1a0d";
-    return "#0f0f0f";
+    if (almostGreen) return theme ? theme.wait : "#0d1a0d";
+    return theme?.wait ?? "#0f0f0f";
   };
+
+  const getActionTextColor = () => theme?.wait ?? "#0f0f0f";
+  const getWaitTextColor = () => theme?.text ?? "#f5f5f5";
+  const getAccentColor = () => theme?.accent ?? "#00e676";
 
   const rating = player?.rating ?? 1000;
   const streak = player?.streak ?? 0;
@@ -925,7 +945,12 @@ export default function Index() {
         <div className="w-full flex items-center justify-between animate-fade-in">
           <div className="flex flex-col gap-0.5">
             <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Рейтинг</span>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5"
+              style={equippedFrame ? {
+                border: `1px solid ${equippedFrame === "frame_neon" ? "#a78bfa" : "#94a3b8"}`,
+                padding: "2px 6px",
+                boxShadow: equippedFrame === "frame_neon" ? "0 0 8px rgba(167,139,250,0.4)" : "0 0 6px rgba(148,163,184,0.3)",
+              } : {}}>
               <span className="font-oswald text-2xl font-bold text-white">{rating}</span>
               <span className="text-sm leading-none">{currentLeague.icon}</span>
             </div>
@@ -981,6 +1006,12 @@ export default function Index() {
                 {player?.nickname ?? "Игрок"} · готов к бою?
               </span>
             )}
+            {/* Титул */}
+            {equippedTitle && (
+              <span className="font-oswald text-xs uppercase tracking-[0.2em] px-2 py-0.5 mt-0.5" style={{ color: "#f39c12", border: "1px solid rgba(243,156,18,0.3)", backgroundColor: "rgba(243,156,18,0.06)" }}>
+                {equippedTitle === "title_iron" ? "НЕ ДРОГНУЛ" : "БЫСТРЕЕ СВЕТА"}
+              </span>
+            )}
           </div>
 
           {/* Серия под угрозой / мотиватор */}
@@ -1009,18 +1040,34 @@ export default function Index() {
             >
               {streak >= 3 ? "рискнёшь продолжить?" : "ошибка = поражение"}
             </span>
-            <button
-              onClick={startMatch}
-              className="w-full h-16 font-oswald text-xl font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
-              style={{
-                backgroundColor: "#c0392b",
-                color: "#f5f5f5",
-                boxShadow: "0 0 30px rgba(192,57,43,0.4)",
-                animation: "pulse 2.5s ease-in-out infinite",
-              }}
-            >
-              {btnLabel}
-            </button>
+            {coins <= 0 ? (
+              <div className="w-full flex flex-col gap-2">
+                <div className="w-full border px-4 py-3 flex flex-col items-center gap-1" style={{ borderColor: "rgba(192,57,43,0.4)", backgroundColor: "rgba(192,57,43,0.06)" }}>
+                  <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Монеты на нуле</span>
+                  <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Пополни баланс чтобы продолжить</span>
+                </div>
+                <button
+                  onClick={() => { setScreen("shop"); setShopTab("coins"); loadShop(); }}
+                  className="w-full h-14 font-oswald text-base font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
+                  style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}
+                >
+                  🪙 КУПИТЬ МОНЕТЫ
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={startMatch}
+                className="w-full h-16 font-oswald text-xl font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
+                style={{
+                  backgroundColor: "#c0392b",
+                  color: "#f5f5f5",
+                  boxShadow: "0 0 30px rgba(192,57,43,0.4)",
+                  animation: "pulse 2.5s ease-in-out infinite",
+                }}
+              >
+                {btnLabel}
+              </button>
+            )}
             <button
               onClick={() => { setEnduranceActive(false); setEnduranceCount(0); setScreen("endurance"); }}
               className="w-full h-10 font-oswald text-sm font-bold tracking-[0.15em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -1134,13 +1181,17 @@ export default function Index() {
         <div className="flex flex-col items-center">
           {!isAction ? (
             <div className="flex flex-col items-center gap-4">
-              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "#c0392b", boxShadow: "0 0 16px rgba(192,57,43,0.9)", animation: "pulse 1s ease-in-out infinite" }} />
-              <span className="font-oswald font-bold uppercase leading-none tracking-tight" style={{ fontSize: "clamp(5rem, 25vw, 8rem)", color: "#f5f5f5" }}>ЖДИ</span>
+              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: theme?.accent ?? "#c0392b", boxShadow: `0 0 16px ${theme?.accent ?? "rgba(192,57,43,0.9)"}`, animation: "pulse 1s ease-in-out infinite" }} />
+              <span className="font-oswald font-bold uppercase leading-none tracking-tight" style={{ fontSize: "clamp(5rem, 25vw, 8rem)", color: getWaitTextColor() }}>ЖДИ</span>
               <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.18)" }}>Не нажми раньше…</span>
             </div>
           ) : (
             <div className="flex flex-col items-center animate-number-pop">
-              <span className="font-oswald font-bold uppercase leading-none tracking-tight" style={{ fontSize: "clamp(5rem, 25vw, 8rem)", color: "#0f0f0f" }}>ЖМИ!</span>
+              {/* Молния — сигнал Spark */}
+              {equippedSignal === "signal_spark" && <span className="text-5xl mb-2" style={{ animation: "pulse 0.3s ease-in-out 2" }}>⚡</span>}
+              {/* Импульс — сигнал Pulse */}
+              {equippedSignal === "signal_pulse" && <div className="w-16 h-16 rounded-full mb-2 animate-ping" style={{ backgroundColor: getAccentColor(), opacity: 0.5 }} />}
+              <span className="font-oswald font-bold uppercase leading-none tracking-tight" style={{ fontSize: "clamp(5rem, 25vw, 8rem)", color: getActionTextColor() }}>ЖМИ!</span>
             </div>
           )}
         </div>
@@ -1160,7 +1211,9 @@ export default function Index() {
   if (screen === "result" && result) {
     const isWin = result.type === "win";
     const isFalseStart = result.type === "false_start";
-    const accentColor = isWin ? "#00e676" : "#c0392b";
+    // Win FX: Золото = жёлтый, Электро = синий, иначе стандарт
+    const winColor = equippedWinFx === "win_gold" ? "#f39c12" : equippedWinFx === "win_electric" ? "#3b82f6" : "#00e676";
+    const accentColor = isWin ? winColor : "#c0392b";
     const nearMissText = result.nearMiss === "close"
       ? `${Math.abs(result.playerTime - result.opponentTime)} мс… ты был очень близко`
       : result.nearMiss === "edge"
