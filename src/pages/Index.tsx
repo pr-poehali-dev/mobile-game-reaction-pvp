@@ -86,6 +86,43 @@ interface LeaderboardEntry {
   best_reaction: number | null;
 }
 
+// ─────────────── HEARTBEAT AUDIO ───────────────
+let audioCtx: AudioContext | null = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || (window as unknown as Record<string, typeof AudioContext>).webkitAudioContext)();
+  return audioCtx;
+}
+function playHeartbeatOnce(volume = 0.3) {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(55, now);
+    osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.15);
+    setTimeout(() => {
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = "sine";
+      osc2.frequency.setValueAtTime(45, ctx.currentTime);
+      osc2.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.1);
+      gain2.gain.setValueAtTime(volume * 0.6, ctx.currentTime);
+      gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(ctx.currentTime);
+      osc2.stop(ctx.currentTime + 0.1);
+    }, 130);
+  } catch { /* audio not available */ }
+}
+
 // ─────────────── BOT LOGIC ───────────────
 // isNewbie: true для первых 3 матчей — бот заметно медленнее, шанс выиграть выше
 function getBotReactionTime(isNewbie = false): number {
@@ -99,9 +136,10 @@ function getBotReactionTime(isNewbie = false): number {
 
 function getSignalDelay(): number {
   const roll = Math.random();
-  if (roll < 0.4) return 1500 + Math.random() * 1000;
-  if (roll < 0.8) return 2500 + Math.random() * 1000;
-  return 3500 + Math.random() * 1500;
+  if (roll < 0.1) return 2000 + Math.random() * 1000;       // 10% быстро (2-3с) — ловит врасплох
+  if (roll < 0.5) return 3500 + Math.random() * 1500;       // 40% средне (3.5-5с)
+  if (roll < 0.85) return 5000 + Math.random() * 2000;      // 35% долго (5-7с) — напряжение
+  return 7000 + Math.random() * 3000;                        // 15% тишина (7-10с) — макс. стресс
 }
 
 const NICKNAMES = ["Зверь", "Железный", "Молния", "Призрак", "Ракета", "Тень", "Коршун", "Тигр", "Волк", "Дракон"];
@@ -548,11 +586,11 @@ export default function Index() {
       // Динамический текст НЕ ЖМИ
       waitTextTimers.current.forEach(clearTimeout);
       waitTextTimers.current = [];
-      const texts = ["ЖДИ", "НЕ ЖМИ", "…", "НЕ ЖМИ", "ЖДИ", "…", "НЕ ЖМИ"];
+      const texts = ["ЖДИ", "…", "НЕ ЖМИ", "ЖДИ", "…", "НЕ ЖМИ", "…", "ЖДИ", "НЕ ЖМИ", "…", "НЕ ЖМИ"];
       let elapsed = 0;
       texts.forEach((t, i) => {
         if (i === 0) return;
-        elapsed += 700 + Math.random() * 600;
+        elapsed += 900 + Math.random() * 900;
         waitTextTimers.current.push(setTimeout(() => {
           if (phaseRef.current !== "wait" && phaseRef.current !== "tension") return;
           setWaitText(t);
@@ -565,6 +603,22 @@ export default function Index() {
       const delay = getSignalDelay();
       runTensionEffects(isNewbie ? 0 : delay);
 
+      // Heartbeat — ускоряется к концу ожидания
+      const hbTimers: ReturnType<typeof setTimeout>[] = [];
+      let hbTime = 1200;
+      let hbElapsed = hbTime;
+      while (hbElapsed < delay - 200) {
+        const t = hbElapsed;
+        const progress = Math.min(t / delay, 1);
+        const vol = 0.15 + progress * 0.25;
+        hbTimers.push(setTimeout(() => {
+          if (phaseRef.current === "wait" || phaseRef.current === "tension") playHeartbeatOnce(vol);
+        }, t));
+        hbTime = Math.max(400, hbTime - 80);
+        hbElapsed += hbTime;
+      }
+      waitTextTimers.current.push(...hbTimers);
+
       mainTimerRef.current = setTimeout(() => {
         if (!gameActiveRef.current) return;
         waitTextTimers.current.forEach(clearTimeout);
@@ -575,6 +629,20 @@ export default function Index() {
         setShaking(true);
         if (navigator.vibrate) navigator.vibrate([50, 30, 80]);
         setTimeout(() => setShaking(false), 300);
+        // Звук удара при сигнале ЖМИ
+        try {
+          const ctx = getAudioCtx();
+          const now = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = "square";
+          osc.frequency.setValueAtTime(220, now);
+          osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+          g.gain.setValueAtTime(0.4, now);
+          g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+          osc.connect(g); g.connect(ctx.destination);
+          osc.start(now); osc.stop(now + 0.1);
+        } catch { /* audio not available */ }
 
         const botTime = getBotReactionTime(isNewbie);
         if (botTime === -1) {
