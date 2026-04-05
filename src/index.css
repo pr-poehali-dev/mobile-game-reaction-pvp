@@ -241,6 +241,17 @@
   animation: screen-flash 0.15s ease-out forwards;
 }
 
+/* Дыхание фона — пульсация яркости */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.06;
+  }
+}
+
 /* Streak fire animation */
 @keyframes streak-fire {
   0%,

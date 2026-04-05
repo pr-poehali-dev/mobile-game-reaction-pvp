@@ -193,6 +193,13 @@ export default function Index() {
   // Чёрный экран near miss перед показом результата
   const [nearMissBlackout, setNearMissBlackout] = useState(false);
 
+  // Динамический текст НЕ ЖМИ
+  const [waitText, setWaitText] = useState("ЖДИ");
+  const waitTextTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Тап-вспышка
+  const [tapFlash, setTapFlash] = useState(false);
+
   // Промо-экран разрешения пушей
   const [pushPromo, setPushPromo] = useState(false);
 
@@ -457,13 +464,18 @@ export default function Index() {
       setTimeout(() => setPushPromo(true), 1800);
     }
 
-    // Near miss: чёрный экран с текстом "ты был очень близко"
-    if (nearMiss === "close" && !isWin) {
+    // Near miss: драматическая пауза
+    if (nearMiss === "close") {
       setNearMissBlackout(true);
-      setTimeout(() => setNearMissBlackout(false), 1400);
+      if (navigator.vibrate) navigator.vibrate([20, 200, 20, 200, 20]);
+      setTimeout(() => setNearMissBlackout(false), 2000);
+    } else if (nearMiss === "edge") {
+      setNearMissBlackout(true);
+      if (navigator.vibrate) navigator.vibrate([15, 300, 15]);
+      setTimeout(() => setNearMissBlackout(false), 1200);
     }
 
-    const delay = nearMiss ? 1500 : 350;
+    const delay = nearMiss === "close" ? 2200 : nearMiss === "edge" ? 1500 : 350;
     setTimeout(() => {
       setScreenFlash("none");
       setScreen("result");
@@ -529,23 +541,40 @@ export default function Index() {
       setAlmostGreen(false);
       setShaking(false);
       setScreenFlash("none");
+      setTapFlash(false);
+      setWaitText("ЖДИ");
       gameActiveRef.current = true;
+
+      // Динамический текст НЕ ЖМИ
+      waitTextTimers.current.forEach(clearTimeout);
+      waitTextTimers.current = [];
+      const texts = ["ЖДИ", "НЕ ЖМИ", "…", "НЕ ЖМИ", "ЖДИ", "…", "НЕ ЖМИ"];
+      let elapsed = 0;
+      texts.forEach((t, i) => {
+        if (i === 0) return;
+        elapsed += 700 + Math.random() * 600;
+        waitTextTimers.current.push(setTimeout(() => {
+          if (phaseRef.current !== "wait" && phaseRef.current !== "tension") return;
+          setWaitText(t);
+        }, elapsed));
+      });
 
       const totalPlayed = (playerRef.current?.wins ?? 0) + (playerRef.current?.losses ?? 0);
       const isNewbie = totalPlayed < 3;
 
       const delay = getSignalDelay();
-      runTensionEffects(isNewbie ? 0 : delay); // новичкам без фейков в первом матче
+      runTensionEffects(isNewbie ? 0 : delay);
 
       mainTimerRef.current = setTimeout(() => {
         if (!gameActiveRef.current) return;
+        waitTextTimers.current.forEach(clearTimeout);
         greenTimeRef.current = Date.now();
         setPhase("action");
         phaseRef.current = "action";
         setScreenFlash("green");
         setShaking(true);
-        if (navigator.vibrate) navigator.vibrate([15, 10, 25]);
-        setTimeout(() => setShaking(false), 200);
+        if (navigator.vibrate) navigator.vibrate([50, 30, 80]);
+        setTimeout(() => setShaking(false), 300);
 
         const botTime = getBotReactionTime(isNewbie);
         if (botTime === -1) {
@@ -575,7 +604,10 @@ export default function Index() {
     if (currentPhase === "wait" || currentPhase === "tension") {
       gameActiveRef.current = false;
       clearAllTimers();
+      waitTextTimers.current.forEach(clearTimeout);
       setScreenFlash("red");
+      setTapFlash(true);
+      setTimeout(() => setTapFlash(false), 120);
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
       setShaking(true);
       setTimeout(() => setShaking(false), 400);
@@ -587,6 +619,11 @@ export default function Index() {
       if (reactionTime < 100) return;
       gameActiveRef.current = false;
       clearAllTimers();
+      setTapFlash(true);
+      setTimeout(() => setTapFlash(false), 120);
+      if (navigator.vibrate) navigator.vibrate([40]);
+      setShaking(true);
+      setTimeout(() => setShaking(false), 200);
       const botTime = 200 + Math.random() * 150;
       finishMatch(reactionTime < botTime ? "win" : "lose", reactionTime, botTime, playerRef.current);
     }
@@ -1166,30 +1203,37 @@ export default function Index() {
         style={{ backgroundColor: bgColor, transition: isAction ? "background-color 0.07s" : "background-color 0.2s" }}
         onPointerDown={handleGameTap}
       >
+        {/* Пульсация фона — дыхание яркости */}
+        {!isAction && (
+          <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: theme?.accent ?? "#c0392b", animation: "breathe 3s ease-in-out infinite", zIndex: 1 }} />
+        )}
+        {/* Тап-вспышка */}
+        {tapFlash && (
+          <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: "#fff", opacity: 0.15, zIndex: 40 }} />
+        )}
         {(fakeFlash || almostGreen) && (
-          <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: "#00e676", opacity: fakeFlash ? 0.07 : 0.12, zIndex: 10 }} />
+          <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: getAccentColor(), opacity: fakeFlash ? 0.1 : 0.18, zIndex: 10 }} />
         )}
         {nearMissBlackout && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none animate-fade-in" style={{ backgroundColor: "#000", zIndex: 50 }}>
-            <span className="font-oswald text-lg tracking-[0.3em] uppercase" style={{ color: "rgba(255,255,255,0.15)" }}>…</span>
-            <span className="font-oswald text-2xl font-bold uppercase tracking-wide" style={{ color: "rgba(255,255,255,0.5)" }}>ты был очень близко</span>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 pointer-events-none" style={{ backgroundColor: "#000", zIndex: 50 }}>
+            <span className="font-oswald text-4xl tracking-[0.3em] uppercase animate-pulse" style={{ color: "rgba(255,255,255,0.1)" }}>…</span>
+            <span className="font-oswald text-2xl font-bold uppercase tracking-wide" style={{ color: "rgba(255,255,255,0.5)", animation: "result-in 0.6s ease-out 0.4s both" }}>на волоске</span>
+            <div className="w-16 h-px mt-2" style={{ backgroundColor: "rgba(255,255,255,0.1)", animation: "result-in 0.4s ease-out 0.8s both" }} />
           </div>
         )}
-        <div className="absolute top-12 inset-x-0 flex justify-center" style={{ color: isAction ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.12)" }}>
+        <div className="absolute top-12 inset-x-0 flex justify-center" style={{ color: isAction ? `${getActionTextColor()}40` : "rgba(255,255,255,0.12)", zIndex: 5 }}>
           <span className="font-rubik text-[11px] uppercase tracking-widest">{isAction ? "нажимай" : "не трогай экран"}</span>
         </div>
-        <div className="flex flex-col items-center">
+        <div className="flex flex-col items-center" style={{ zIndex: 5 }}>
           {!isAction ? (
             <div className="flex flex-col items-center gap-4">
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: theme?.accent ?? "#c0392b", boxShadow: `0 0 16px ${theme?.accent ?? "rgba(192,57,43,0.9)"}`, animation: "pulse 1s ease-in-out infinite" }} />
-              <span className="font-oswald font-bold uppercase leading-none tracking-tight" style={{ fontSize: "clamp(5rem, 25vw, 8rem)", color: getWaitTextColor() }}>ЖДИ</span>
-              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.18)" }}>Не нажми раньше…</span>
+              <span className="font-oswald font-bold uppercase leading-none tracking-tight transition-all duration-300" style={{ fontSize: waitText === "…" ? "clamp(3rem, 15vw, 5rem)" : "clamp(4rem, 22vw, 7rem)", color: waitText === "НЕ ЖМИ" ? (theme?.accent ?? "#c0392b") : getWaitTextColor(), opacity: waitText === "…" ? 0.3 : 1 }}>{waitText}</span>
+              <span className="font-rubik text-sm" style={{ color: "rgba(255,255,255,0.18)" }}>{waitText === "НЕ ЖМИ" ? "Держись…" : "Не нажми раньше…"}</span>
             </div>
           ) : (
             <div className="flex flex-col items-center animate-number-pop">
-              {/* Молния — сигнал Spark */}
               {equippedSignal === "signal_spark" && <span className="text-5xl mb-2" style={{ animation: "pulse 0.3s ease-in-out 2" }}>⚡</span>}
-              {/* Импульс — сигнал Pulse */}
               {equippedSignal === "signal_pulse" && <div className="w-16 h-16 rounded-full mb-2 animate-ping" style={{ backgroundColor: getAccentColor(), opacity: 0.5 }} />}
               <span className="font-oswald font-bold uppercase leading-none tracking-tight" style={{ fontSize: "clamp(5rem, 25vw, 8rem)", color: getActionTextColor() }}>ЖМИ!</span>
             </div>
