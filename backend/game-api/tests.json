@@ -5,7 +5,7 @@
       "method": "GET",
       "path": "/",
       "expectedStatus": 404,
-      "expectedBody": {"error": "not found"},
+      "expectedBody": {"error": "not found (game-api)"},
       "bodyMatcher": "partial"
     },
     {
@@ -45,6 +45,14 @@
       "method": "POST",
       "path": "/?action=push-token",
       "body": {"push_token": "test"},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Ad reward — missing player_id",
+      "method": "POST",
+      "path": "/?action=ad-reward",
       "expectedStatus": 400,
       "expectedBody": {"error": "player_id required"},
       "bodyMatcher": "partial"

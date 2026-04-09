@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import { getLeague, getProgressToNext, getPressureMessage } from "@/lib/leagues";
 import { requestPushPermission, schedulePushAfterMatch } from "@/lib/push";
+import { showRewardedAd } from "@/lib/ads";
 
 const API       = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c83279";
 const DUEL_API  = "https://functions.poehali.dev/fd904cf2-ca8c-4cda-9ec3-e5fb219c5102";
@@ -608,10 +609,9 @@ export default function Index() {
       setEnduranceCount(0);
       enduranceActiveRef.current = false;
       enduranceCountRef.current = 0;
-      setShopToast("Нужно минимум 20 монет для игры");
-      setTimeout(() => setShopToast(""), 2500);
-      setShopTab("coins");
-      setScreen("shop");
+      setShopToast("Нужно минимум 20 монет — смотри видео или купи");
+      setTimeout(() => setShopToast(""), 3000);
+      setScreen("home");
       return;
     }
     trackEvent("match_start");
@@ -911,6 +911,43 @@ export default function Index() {
   useEffect(() => {
     if (screen === "shop") loadShop();
   }, [screen, loadShop]);
+
+  // ── AD REWARD: посмотреть видео за 100 монет ──
+  const [adLoading, setAdLoading] = useState(false);
+  const watchAdForCoins = useCallback(async () => {
+    if (adLoading) return;
+    setAdLoading(true);
+    try {
+      const result = await showRewardedAd();
+      if (result !== "rewarded") {
+        setShopToast("Видео не досмотрено");
+        setTimeout(() => setShopToast(""), 2000);
+        return;
+      }
+      const pid = localStorage.getItem("ne_slomaisa_player_id");
+      if (!pid) return;
+      const res = await fetch(`${API}/?action=ad-reward`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      });
+      const d = await res.json();
+      if (d.player) {
+        setPlayer(d.player);
+        setShopToast(`+${d.coins_added} монет!`);
+        setTimeout(() => setShopToast(""), 2500);
+        trackEvent("ad_reward", { coins: d.coins_added });
+      } else if (d.retry_after) {
+        const mins = Math.ceil(d.retry_after / 60);
+        setShopToast(`Подожди ${mins} мин`);
+        setTimeout(() => setShopToast(""), 2500);
+      }
+    } catch {
+      setShopToast("Ошибка загрузки видео");
+      setTimeout(() => setShopToast(""), 2000);
+    } finally {
+      setAdLoading(false);
+    }
+  }, [adLoading]);
 
   // ── SHOP: купить товар ──
   const buyItem = useCallback((itemId: string) => {
@@ -1232,11 +1269,20 @@ export default function Index() {
                   <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Нужно минимум 20 монет для игры · у тебя {coins}</span>
                 </div>
                 <button
-                  onClick={() => { setShopTab("coins"); setScreen("shop"); }}
-                  className="w-full h-14 font-oswald text-base font-bold tracking-[0.2em] uppercase transition-all active:scale-95"
-                  style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}
+                  onClick={watchAdForCoins}
+                  disabled={adLoading}
+                  className="w-full h-14 font-oswald text-base font-bold tracking-[0.2em] uppercase transition-all active:scale-95 flex items-center justify-center gap-2"
+                  style={{ backgroundColor: "#00e676", color: "#0f0f0f", opacity: adLoading ? 0.6 : 1 }}
                 >
-                  🪙 КУПИТЬ МОНЕТЫ
+                  <Icon name="Play" size={18} />
+                  {adLoading ? "ЗАГРУЗКА..." : "СМОТРИ ВИДЕО — 100 МОНЕТ"}
+                </button>
+                <button
+                  onClick={() => { setShopTab("coins"); setScreen("shop"); }}
+                  className="w-full h-10 font-oswald text-xs font-bold tracking-[0.15em] uppercase transition-all active:scale-95"
+                  style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.3)", border: "1px solid rgba(255,255,255,0.1)" }}
+                >
+                  🪙 ИЛИ КУПИТЬ МОНЕТЫ
                 </button>
               </div>
             ) : (
@@ -2131,10 +2177,16 @@ export default function Index() {
                 <span className="font-oswald text-sm font-bold uppercase tracking-wider" style={{ color: "#c0392b" }}>Мало монет</span>
                 <span className="font-rubik text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Нужно минимум 20 монет · у тебя {coins}</span>
               </div>
+              <button onClick={watchAdForCoins} disabled={adLoading}
+                className="w-full h-14 font-oswald text-base font-bold tracking-[0.2em] uppercase active:scale-95 transition-all flex items-center justify-center gap-2"
+                style={{ backgroundColor: "#00e676", color: "#0f0f0f", opacity: adLoading ? 0.6 : 1 }}>
+                <Icon name="Play" size={18} />
+                {adLoading ? "ЗАГРУЗКА..." : "СМОТРИ ВИДЕО — 100 МОНЕТ"}
+              </button>
               <button onClick={() => { setShopTab("coins"); setScreen("shop"); }}
-                className="w-full h-14 font-oswald text-base font-bold tracking-[0.2em] uppercase active:scale-95 transition-all"
-                style={{ backgroundColor: "#f39c12", color: "#0f0f0f" }}>
-                🪙 КУПИТЬ МОНЕТЫ
+                className="w-full h-10 font-oswald text-xs font-bold tracking-[0.15em] uppercase active:scale-95 transition-all"
+                style={{ backgroundColor: "transparent", color: "rgba(255,255,255,0.3)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                🪙 ИЛИ КУПИТЬ МОНЕТЫ
               </button>
             </div>
           ) : isDone ? (

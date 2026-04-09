@@ -362,4 +362,48 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return resp(200, {"ok": True})
 
-    return resp(404, {"error": "not found"})
+    # ── POST /ad-reward — начислить монеты за просмотр рекламы ──
+    if method == "POST" and (action == "ad-reward" or "/ad-reward" in path):
+        if not player_id:
+            return resp(400, {"error": "player_id required"})
+
+        reward_coins = 100
+        cooldown_minutes = 5
+
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            f"SELECT id, coins, last_ad_reward_at FROM {SCHEMA}.players WHERE id = %s FOR UPDATE",
+            (player_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            conn.close()
+            return resp(404, {"error": "player not found"})
+
+        if row.get("last_ad_reward_at"):
+            cur.execute(
+                "SELECT EXTRACT(EPOCH FROM (NOW() - %s)) as diff",
+                (row["last_ad_reward_at"],)
+            )
+            diff = cur.fetchone()["diff"]
+            if diff < cooldown_minutes * 60:
+                remaining = int(cooldown_minutes * 60 - diff)
+                cur.close()
+                conn.close()
+                return resp(429, {"error": "Подожди немного", "retry_after": remaining})
+
+        new_coins = row["coins"] + reward_coins
+        cur.execute(
+            f"UPDATE {SCHEMA}.players SET coins=%s, last_ad_reward_at=NOW() WHERE id=%s RETURNING *",
+            (new_coins, player_id)
+        )
+        updated = dict(cur.fetchone())
+        conn.commit()
+        cur.close()
+        conn.close()
+        return resp(200, {"player": updated, "coins_added": reward_coins})
+
+    return resp(404, {"error": "not found (game-api)"})
