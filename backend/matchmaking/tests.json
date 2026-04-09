@@ -1,0 +1,36 @@
+{
+  "tests": [
+    {
+      "name": "CORS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Join without player_id",
+      "method": "POST",
+      "path": "/?action=join",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Poll without player_id",
+      "method": "GET",
+      "path": "/?action=poll",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "player_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Submit without match_id",
+      "method": "POST",
+      "path": "/?action=submit&player_id=00000000-0000-0000-0000-000000000000",
+      "body": {"reaction_time": 250},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "match_id required"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

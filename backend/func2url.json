@@ -1,4 +1,5 @@
 {
+  "matchmaking": "https://functions.poehali.dev/6051dd88-db93-4e00-8466-74fea305e9bb",
   "push-scheduler": "https://functions.poehali.dev/0ec5c321-2b94-4415-a36e-a08a61a57b6a",
   "shop-api": "https://functions.poehali.dev/ec65f2ad-bca4-448e-aadc-868e4837731e",
   "challenges-api": "https://functions.poehali.dev/741e5a6a-988f-460f-a7a9-c35ed918cb69",

@@ -8,6 +8,7 @@ const API       = "https://functions.poehali.dev/7000f2b2-907e-4557-90a3-c4e459c
 const DUEL_API  = "https://functions.poehali.dev/fd904cf2-ca8c-4cda-9ec3-e5fb219c5102";
 const CHALL_API = "https://functions.poehali.dev/741e5a6a-988f-460f-a7a9-c35ed918cb69";
 const SHOP_API  = "https://functions.poehali.dev/ec65f2ad-bca4-448e-aadc-868e4837731e";
+const MM_API    = "https://functions.poehali.dev/6051dd88-db93-4e00-8466-74fea305e9bb";
 
 // ─────────────── TYPES ───────────────
 type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile" | "duel-lobby" | "duel-wait" | "challenges" | "shop" | "endurance";
@@ -271,6 +272,11 @@ export default function Index() {
   const playerRef = useRef<Player | null>(null);
   const enduranceActiveRef = useRef(false);
   const enduranceCountRef = useRef(0);
+  // PvP матчмейкинг
+  const pvpMatchIdRef = useRef<string | null>(null);
+  const pvpIsPlayer1Ref = useRef<boolean>(false);
+  const pvpPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pvpResultPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { playerRef.current = player; }, [player]);
@@ -346,6 +352,8 @@ export default function Index() {
     if (mainTimerRef.current) clearTimeout(mainTimerRef.current);
     waitTextTimers.current.forEach(clearTimeout);
     waitTextTimers.current = [];
+    if (pvpPollTimerRef.current) { clearTimeout(pvpPollTimerRef.current); pvpPollTimerRef.current = null; }
+    if (pvpResultPollRef.current) { clearTimeout(pvpResultPollRef.current); pvpResultPollRef.current = null; }
   }, []);
 
   // ── TENSION ──
@@ -600,9 +608,109 @@ export default function Index() {
   const [opponentName, setOpponentName] = useState("");
   const [searchPhase, setSearchPhase] = useState<"searching" | "connecting" | "found" | "ready">("searching");
 
+  // ── GAME ROUND: общая логика запуска игрового раунда (PvP или Bot) ──
+  const runGameRound = useCallback((opts: { delay?: number; isPvP: boolean }) => {
+    setScreen("game");
+    setPhase("wait");
+    phaseRef.current = "wait";
+    setFakeFlash(false);
+    setAlmostGreen(false);
+    setShaking(false);
+    setScreenFlash("none");
+    setTapFlash(false);
+    setWaitText("ЖДИ");
+    gameActiveRef.current = true;
+
+    waitTextTimers.current.forEach(clearTimeout);
+    waitTextTimers.current = [];
+    const texts = ["ЖДИ", "…", "НЕ ЖМИ", "ЖДИ", "…", "НЕ ЖМИ", "…", "ЖДИ", "НЕ ЖМИ", "…", "НЕ ЖМИ"];
+    let elapsed = 0;
+    texts.forEach((t, i) => {
+      if (i === 0) return;
+      elapsed += 900 + Math.random() * 900;
+      waitTextTimers.current.push(setTimeout(() => {
+        if (phaseRef.current !== "wait" && phaseRef.current !== "tension") return;
+        setWaitText(t);
+      }, elapsed));
+    });
+
+    const totalPlayed = (playerRef.current?.wins ?? 0) + (playerRef.current?.losses ?? 0);
+    const isNewbie = totalPlayed < 3;
+
+    const delay = opts.delay ?? getSignalDelay();
+    runTensionEffects(isNewbie ? 0 : delay);
+
+    const hbTimers: ReturnType<typeof setTimeout>[] = [];
+    let hbTime = 1200;
+    let hbElapsed = hbTime;
+    while (hbElapsed < delay - 200) {
+      const t = hbElapsed;
+      const progress = Math.min(t / delay, 1);
+      const vol = 0.15 + progress * 0.25;
+      hbTimers.push(setTimeout(() => {
+        if (phaseRef.current === "wait" || phaseRef.current === "tension") playHeartbeatOnce(vol);
+      }, t));
+      hbTime = Math.max(400, hbTime - 80);
+      hbElapsed += hbTime;
+    }
+    waitTextTimers.current.push(...hbTimers);
+
+    mainTimerRef.current = setTimeout(() => {
+      if (!gameActiveRef.current) return;
+      waitTextTimers.current.forEach(clearTimeout);
+      greenTimeRef.current = Date.now();
+      setPhase("action");
+      phaseRef.current = "action";
+      setScreenFlash("green");
+      setShaking(true);
+      if (navigator.vibrate) navigator.vibrate([50, 30, 80]);
+      setTimeout(() => setShaking(false), 300);
+      try {
+        const ctx = getAudioCtx();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = "square";
+        osc.frequency.setValueAtTime(220, now);
+        osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+        g.gain.setValueAtTime(0.4, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+        osc.connect(g); g.connect(ctx.destination);
+        osc.start(now); osc.stop(now + 0.1);
+      } catch { /* audio not available */ }
+
+      if (opts.isPvP) {
+        // PvP режим: если игрок не нажал за 4 сек — пропуск, fallback на бота
+        // submitPvPAndWait стартует через handleGameTap; таймаут — страховка
+        const timeoutTimer = setTimeout(() => {
+          if (!gameActiveRef.current) return;
+          gameActiveRef.current = false;
+          finishMatch("lose", 5000, getBotReactionTime(isNewbie), playerRef.current);
+          pvpMatchIdRef.current = null;
+        }, 4000);
+        tensionTimersRef.current.push(timeoutTimer);
+      } else {
+        // Бот режим
+        const botTime = getBotReactionTime(isNewbie);
+        if (botTime === -1) {
+          setTimeout(() => {
+            if (gameActiveRef.current) finishMatch("win", 999, -1, playerRef.current);
+          }, 200);
+        } else {
+          const botTimer = setTimeout(() => {
+            if (gameActiveRef.current) finishMatch("lose", 9999, botTime, playerRef.current);
+          }, botTime);
+          const timeoutTimer = setTimeout(() => {
+            if (gameActiveRef.current) finishMatch("lose", 5000, getBotReactionTime(isNewbie), playerRef.current);
+          }, 3000);
+          tensionTimersRef.current.push(botTimer, timeoutTimer);
+        }
+      }
+    }, delay);
+  }, [runTensionEffects, finishMatch]);
+
   // ── START MATCH ──
   const startMatch = useCallback(() => {
-    // Проверка монет: ставка матча = 20 монет
     const currentCoins = playerRef.current?.coins ?? 0;
     if (currentCoins < 20) {
       setEnduranceActive(false);
@@ -618,121 +726,144 @@ export default function Index() {
     setScreen("searching");
     setResult(null);
     setSearchPhase("searching");
-    const fakeOpponent = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)] + Math.floor(Math.random() * 99);
-    setOpponentName(fakeOpponent);
+    // Очистка старых PvP таймеров
+    if (pvpPollTimerRef.current) clearTimeout(pvpPollTimerRef.current);
+    pvpMatchIdRef.current = null;
 
-    setTimeout(() => {
-      setSearchPhase("connecting");
-    }, 900 + Math.random() * 400);
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) {
+      // Нет id — сразу фолбек на бота
+      const fakeOpponent = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)] + Math.floor(Math.random() * 99);
+      setOpponentName(fakeOpponent);
+      setTimeout(() => setSearchPhase("ready"), 2800);
+      setTimeout(() => runGameRound({ isPvP: false }), 3800);
+      return;
+    }
 
-    setTimeout(() => {
-      setSearchPhase("found");
-      if (navigator.vibrate) navigator.vibrate([30]);
-    }, 1800 + Math.random() * 500);
+    const startedAt = Date.now();
+    const MAX_WAIT_MS = 5000;
 
-    setTimeout(() => {
+    const fallbackToBot = () => {
+      // Покидаем очередь
+      fetch(`${MM_API}/?action=leave`, {
+        method: "POST",
+        headers: { "X-Player-Id": pid },
+      }).catch(() => {});
+      const fakeOpponent = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)] + Math.floor(Math.random() * 99);
+      setOpponentName(fakeOpponent);
       setSearchPhase("ready");
       if (navigator.vibrate) navigator.vibrate([15, 100, 15]);
-    }, 2800 + Math.random() * 400);
+      setTimeout(() => runGameRound({ isPvP: false }), 1000);
+    };
 
-    setTimeout(() => {
-      setScreen("game");
-      setPhase("wait");
-      phaseRef.current = "wait";
-      setFakeFlash(false);
-      setAlmostGreen(false);
-      setShaking(false);
-      setScreenFlash("none");
-      setTapFlash(false);
-      setWaitText("ЖДИ");
-      gameActiveRef.current = true;
+    const startPvPMatch = (match: { id: string; player1_id: string; player2_id: string; player1_nickname: string; player2_nickname: string; signal_delay_ms: number }) => {
+      pvpMatchIdRef.current = match.id;
+      pvpIsPlayer1Ref.current = match.player1_id === pid;
+      const opName = pvpIsPlayer1Ref.current ? match.player2_nickname : match.player1_nickname;
+      setOpponentName(opName);
+      setSearchPhase("found");
+      if (navigator.vibrate) navigator.vibrate([30]);
+      setTimeout(() => {
+        setSearchPhase("ready");
+        if (navigator.vibrate) navigator.vibrate([15, 100, 15]);
+      }, 800);
+      setTimeout(() => runGameRound({ delay: match.signal_delay_ms, isPvP: true }), 1800);
+    };
 
-      // Динамический текст НЕ ЖМИ
-      waitTextTimers.current.forEach(clearTimeout);
-      waitTextTimers.current = [];
-      const texts = ["ЖДИ", "…", "НЕ ЖМИ", "ЖДИ", "…", "НЕ ЖМИ", "…", "ЖДИ", "НЕ ЖМИ", "…", "НЕ ЖМИ"];
-      let elapsed = 0;
-      texts.forEach((t, i) => {
-        if (i === 0) return;
-        elapsed += 900 + Math.random() * 900;
-        waitTextTimers.current.push(setTimeout(() => {
-          if (phaseRef.current !== "wait" && phaseRef.current !== "tension") return;
-          setWaitText(t);
-        }, elapsed));
-      });
-
-      const totalPlayed = (playerRef.current?.wins ?? 0) + (playerRef.current?.losses ?? 0);
-      const isNewbie = totalPlayed < 3;
-
-      const delay = getSignalDelay();
-      runTensionEffects(isNewbie ? 0 : delay);
-
-      // Heartbeat — ускоряется к концу ожидания
-      const hbTimers: ReturnType<typeof setTimeout>[] = [];
-      let hbTime = 1200;
-      let hbElapsed = hbTime;
-      while (hbElapsed < delay - 200) {
-        const t = hbElapsed;
-        const progress = Math.min(t / delay, 1);
-        const vol = 0.15 + progress * 0.25;
-        hbTimers.push(setTimeout(() => {
-          if (phaseRef.current === "wait" || phaseRef.current === "tension") playHeartbeatOnce(vol);
-        }, t));
-        hbTime = Math.max(400, hbTime - 80);
-        hbElapsed += hbTime;
-      }
-      waitTextTimers.current.push(...hbTimers);
-
-      mainTimerRef.current = setTimeout(() => {
-        if (!gameActiveRef.current) return;
-        waitTextTimers.current.forEach(clearTimeout);
-        greenTimeRef.current = Date.now();
-        setPhase("action");
-        phaseRef.current = "action";
-        setScreenFlash("green");
-        setShaking(true);
-        if (navigator.vibrate) navigator.vibrate([50, 30, 80]);
-        setTimeout(() => setShaking(false), 300);
-        // Звук удара при сигнале ЖМИ
-        try {
-          const ctx = getAudioCtx();
-          const now = ctx.currentTime;
-          const osc = ctx.createOscillator();
-          const g = ctx.createGain();
-          osc.type = "square";
-          osc.frequency.setValueAtTime(220, now);
-          osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
-          g.gain.setValueAtTime(0.4, now);
-          g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-          osc.connect(g); g.connect(ctx.destination);
-          osc.start(now); osc.stop(now + 0.1);
-        } catch { /* audio not available */ }
-
-        const botTime = getBotReactionTime(isNewbie);
-        if (botTime === -1) {
-          setTimeout(() => {
-            if (gameActiveRef.current) finishMatch("win", 999, -1, playerRef.current);
-          }, 200);
-        } else {
-          const botTimer = setTimeout(() => {
-            if (gameActiveRef.current) finishMatch("lose", 9999, botTime, playerRef.current);
-          }, botTime);
-          const timeoutTimer = setTimeout(() => {
-            if (gameActiveRef.current) finishMatch("lose", 5000, getBotReactionTime(isNewbie), playerRef.current);
-          }, 3000);
-          tensionTimersRef.current.push(botTimer, timeoutTimer);
+    // Шаг 1: встаём в очередь
+    fetch(`${MM_API}/?action=join`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.status === "matched" && d.match) {
+          startPvPMatch(d.match);
+          return;
         }
-      }, delay);
-    }, 3800 + Math.random() * 400);
-  }, [runTensionEffects, finishMatch]);
+        if (d.status !== "waiting") {
+          fallbackToBot();
+          return;
+        }
+        // Polling до 5 сек
+        setSearchPhase("connecting");
+        const poll = () => {
+          if (Date.now() - startedAt > MAX_WAIT_MS) {
+            fallbackToBot();
+            return;
+          }
+          fetch(`${MM_API}/?action=poll&player_id=${pid}`)
+            .then(r => r.json())
+            .then(p => {
+              if (p.status === "matched" && p.match) {
+                startPvPMatch(p.match);
+              } else {
+                pvpPollTimerRef.current = setTimeout(poll, 800);
+              }
+            })
+            .catch(() => { pvpPollTimerRef.current = setTimeout(poll, 800); });
+        };
+        pvpPollTimerRef.current = setTimeout(poll, 800);
+      })
+      .catch(() => fallbackToBot());
+  }, [runGameRound]);
 
   // Регистрируем startMatch в ref для deep link
   useEffect(() => { startMatchRef.current = startMatch; }, [startMatch]);
+
+  // ── PvP: отправить своё время + дождаться соперника ──
+  const submitPvPAndWait = useCallback((matchId: string, myReactionMs: number) => {
+    const pid = localStorage.getItem("ne_slomaisa_player_id");
+    if (!pid) return;
+
+    fetch(`${MM_API}/?action=submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Player-Id": pid },
+      body: JSON.stringify({ match_id: matchId, reaction_time: myReactionMs }),
+    }).catch(() => {});
+
+    // Опрос результата (до 5 сек)
+    const startedAt = Date.now();
+    const pollResult = () => {
+      if (!gameActiveRef.current && pvpMatchIdRef.current !== matchId) return;
+      if (Date.now() - startedAt > 5000) {
+        // Соперник не ответил — засчитываем победу
+        finishMatch(myReactionMs === -1 ? "false_start" : "win", myReactionMs, 5000, playerRef.current);
+        pvpMatchIdRef.current = null;
+        return;
+      }
+      fetch(`${MM_API}/?action=poll&player_id=${pid}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.status === "finished" && d.match) {
+            const m = d.match;
+            const isP1 = m.player1_id === pid;
+            const myT = isP1 ? m.player1_time : m.player2_time;
+            const opT = isP1 ? m.player2_time : m.player1_time;
+            let resultType: ResultType;
+            if (myT === -1) resultType = "false_start";
+            else if (m.winner_id === pid) resultType = "win";
+            else if (m.winner_id === null) resultType = "lose";
+            else resultType = "lose";
+            finishMatch(resultType, myT ?? myReactionMs, opT ?? 5000, playerRef.current);
+            pvpMatchIdRef.current = null;
+          } else if (d.status === "matched") {
+            // Соперник ещё играет
+            pvpResultPollRef.current = setTimeout(pollResult, 600);
+          } else {
+            pvpResultPollRef.current = setTimeout(pollResult, 600);
+          }
+        })
+        .catch(() => { pvpResultPollRef.current = setTimeout(pollResult, 600); });
+    };
+    pvpResultPollRef.current = setTimeout(pollResult, 400);
+  }, [finishMatch]);
 
   // ── PLAYER TAP ──
   const handleGameTap = useCallback(() => {
     if (!gameActiveRef.current) return;
     const currentPhase = phaseRef.current;
+    const pvpMatchId = pvpMatchIdRef.current;
 
     if (currentPhase === "wait" || currentPhase === "tension") {
       gameActiveRef.current = false;
@@ -745,7 +876,12 @@ export default function Index() {
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
       setShaking(true);
       setTimeout(() => setShaking(false), 400);
-      finishMatch("false_start", -1, 0, playerRef.current);
+      if (pvpMatchId) {
+        // В PvP false_start — отправляем -1 и ждём соперника
+        submitPvPAndWait(pvpMatchId, -1);
+      } else {
+        finishMatch("false_start", -1, 0, playerRef.current);
+      }
       return;
     }
     if (currentPhase === "action") {
@@ -759,10 +895,18 @@ export default function Index() {
       if (navigator.vibrate) navigator.vibrate([40]);
       setShaking(true);
       setTimeout(() => setShaking(false), 200);
-      const botTime = 200 + Math.random() * 150;
-      finishMatch(reactionTime < botTime ? "win" : "lose", reactionTime, botTime, playerRef.current);
+      if (pvpMatchId) {
+        // PvP: отправляем своё время и ждём
+        setPhase("done");
+        phaseRef.current = "done";
+        setWaitText("ЖДЁМ СОПЕРНИКА...");
+        submitPvPAndWait(pvpMatchId, reactionTime);
+      } else {
+        const botTime = 200 + Math.random() * 150;
+        finishMatch(reactionTime < botTime ? "win" : "lose", reactionTime, botTime, playerRef.current);
+      }
     }
-  }, [finishMatch, clearAllTimers]);
+  }, [finishMatch, clearAllTimers, submitPvPAndWait]);
 
   // ── LOAD LEADERBOARD ──
   const loadLeaderboard = useCallback(() => {
