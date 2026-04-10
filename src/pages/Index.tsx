@@ -2707,9 +2707,10 @@ export default function Index() {
                     trackEvent("shop_pack_click");
                     const pid = localStorage.getItem("ne_slomaisa_player_id");
                     if (!pid) return;
+                    const win = window.open("", "_blank");
                     fetch(`${PAY_API}/?action=pay&item_id=coins_300&player_id=${pid}`, { headers: { "X-Player-Id": pid } })
                       .then(r => r.json())
-                      .then(d => { if (d.url) window.open(d.url, "_blank"); });
+                      .then(d => { if (d.url && win) win.location.href = d.url; });
                   }}
                 >
                   49 ₽
@@ -2736,9 +2737,10 @@ export default function Index() {
                       const pid = localStorage.getItem("ne_slomaisa_player_id");
                       if (!pid) return;
                       const itemId = `coins_${pack.amount}`;
+                      const win = window.open("", "_blank");
                       fetch(`${PAY_API}/?action=pay&item_id=${itemId}&player_id=${pid}`, { headers: { "X-Player-Id": pid } })
                         .then(r => r.json())
-                        .then(d => { if (d.url) window.open(d.url, "_blank"); });
+                        .then(d => { if (d.url && win) win.location.href = d.url; });
                     }}
                   >
                     {pack.price} ₽
