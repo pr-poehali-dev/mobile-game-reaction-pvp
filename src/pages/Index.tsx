@@ -11,7 +11,7 @@ const SHOP_API  = "https://functions.poehali.dev/ec65f2ad-bca4-448e-aadc-868e483
 const MM_API    = "https://functions.poehali.dev/6051dd88-db93-4e00-8466-74fea305e9bb";
 
 // ─────────────── TYPES ───────────────
-type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile" | "duel-lobby" | "duel-wait" | "challenges" | "shop" | "endurance";
+type Screen = "home" | "searching" | "game" | "result" | "leaderboard" | "profile" | "duel-lobby" | "duel-wait" | "challenges" | "shop" | "endurance" | "legal";
 type GamePhase = "wait" | "tension" | "action" | "done";
 type ResultType = "win" | "lose" | "false_start";
 
@@ -1530,6 +1530,7 @@ export default function Index() {
             { icon: "ShoppingBag", label: "Магазин", action: () => { setScreen("shop"); loadShop(); } },
             { icon: "CalendarCheck", label: "Задания", action: () => { setScreen("challenges"); loadChallenges(); } },
             { icon: "User", label: "Профиль", action: () => { setScreen("profile"); loadProfile(); } },
+            { icon: "Info", label: "Инфо", action: () => { setScreen("legal"); } },
           ].map(({ icon, label, action }, idx) => {
             const hasBadge = idx === 3 && challenges.some(c => c.completed && !claimedIds.has(c.id));
             return (
@@ -2727,6 +2728,78 @@ export default function Index() {
               })}
             </div>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── LEGAL / INFO ──
+  if (screen === "legal") {
+    return (
+      <div className="flex flex-col h-dvh w-full overflow-hidden" style={{ backgroundColor: "#0f0f0f" }}>
+        <div className="flex items-center gap-3 px-5 pt-6 pb-4">
+          <button onClick={() => setScreen("home")} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(255,255,255,0.06)" }}>
+            <Icon name="ArrowLeft" size={18} style={{ color: "#f5f5f5" }} />
+          </button>
+          <span className="font-oswald text-lg font-bold text-white uppercase tracking-wider">Информация</span>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 pb-8">
+          <div className="flex flex-col gap-6">
+            <div className="rounded-2xl p-5" style={{ backgroundColor: "rgba(255,255,255,0.04)" }}>
+              <h3 className="font-oswald text-sm font-bold uppercase tracking-wider mb-3" style={{ color: "rgba(255,255,255,0.5)" }}>О приложении</h3>
+              <p className="font-rubik text-sm text-white leading-relaxed">
+                «Не сломайся» — мобильная игра на скорость реакции. Соревнуйся с реальными игроками и ботами, улучшай свой рейтинг и поднимайся в лигах.
+              </p>
+            </div>
+
+            <div className="rounded-2xl p-5" style={{ backgroundColor: "rgba(255,255,255,0.04)" }}>
+              <h3 className="font-oswald text-sm font-bold uppercase tracking-wider mb-3" style={{ color: "rgba(255,255,255,0.5)" }}>Разработчик</h3>
+              <p className="font-rubik text-sm text-white leading-relaxed">
+                Индивидуальный разработчик
+              </p>
+              <div className="flex items-center gap-2 mt-3">
+                <Icon name="Mail" size={14} style={{ color: "rgba(255,255,255,0.4)" }} />
+                <a href="mailto:rekrutiw@yandex.ru" className="font-rubik text-sm underline" style={{ color: "#f39c12" }}>rekrutiw@yandex.ru</a>
+              </div>
+            </div>
+
+            <div className="rounded-2xl p-5" style={{ backgroundColor: "rgba(255,255,255,0.04)" }}>
+              <h3 className="font-oswald text-sm font-bold uppercase tracking-wider mb-3" style={{ color: "rgba(255,255,255,0.5)" }}>Пользовательское соглашение</h3>
+              <div className="font-rubik text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.6)" }}>
+                <p className="mb-2">1. Приложение предоставляется «как есть». Разработчик не несёт ответственности за возможные сбои в работе.</p>
+                <p className="mb-2">2. Аккаунт создаётся автоматически при первом запуске. Регистрация с указанием персональных данных не требуется.</p>
+                <p className="mb-2">3. Приложение не собирает и не передаёт третьим лицам персональные данные пользователей.</p>
+                <p className="mb-2">4. Внутриигровая валюта (монеты) не является реальным платёжным средством и не подлежит обмену на денежные средства.</p>
+                <p className="mb-2">5. Разработчик оставляет за собой право изменять правила, баланс и функциональность приложения без предварительного уведомления.</p>
+                <p>6. Используя приложение, вы соглашаетесь с данными условиями.</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl p-5" style={{ backgroundColor: "rgba(255,255,255,0.04)" }}>
+              <h3 className="font-oswald text-sm font-bold uppercase tracking-wider mb-3" style={{ color: "rgba(255,255,255,0.5)" }}>Политика конфиденциальности</h3>
+              <div className="font-rubik text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.6)" }}>
+                <p className="mb-2">Приложение «Не сломайся» не требует регистрации и не запрашивает персональные данные (имя, email, телефон, адрес).</p>
+                <p className="mb-2">Сохраняемые данные: уникальный идентификатор устройства (для привязки игрового прогресса), игровой никнейм (генерируется случайно), игровая статистика (рейтинг, победы, монеты).</p>
+                <p className="mb-2">Данные хранятся на сервере и используются исключительно для работы приложения. Данные не передаются третьим лицам и не используются в рекламных целях.</p>
+                <p>По вопросам обращайтесь: rekrutiw@yandex.ru</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl p-5" style={{ backgroundColor: "rgba(255,255,255,0.04)" }}>
+              <h3 className="font-oswald text-sm font-bold uppercase tracking-wider mb-3" style={{ color: "rgba(255,255,255,0.5)" }}>Контакты</h3>
+              <p className="font-rubik text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.6)" }}>
+                Связь с разработчиком по всем вопросам, предложениям и жалобам:
+              </p>
+              <div className="flex items-center gap-2 mt-3">
+                <Icon name="Mail" size={14} style={{ color: "#f39c12" }} />
+                <a href="mailto:rekrutiw@yandex.ru" className="font-rubik text-sm underline" style={{ color: "#f39c12" }}>rekrutiw@yandex.ru</a>
+              </div>
+            </div>
+
+            <p className="font-rubik text-[10px] text-center pb-4" style={{ color: "rgba(255,255,255,0.2)" }}>
+              Версия 1.0 | 2025
+            </p>
+          </div>
         </div>
       </div>
     );
