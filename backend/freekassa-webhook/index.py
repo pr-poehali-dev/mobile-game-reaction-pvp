@@ -16,10 +16,11 @@ CORS = {
 }
 
 COIN_PACKAGES = {
-    "coins_100":  {"coins": 100,  "price": "29.00"},
-    "coins_300":  {"coins": 300,  "price": "49.00"},
-    "coins_700":  {"coins": 700,  "price": "99.00"},
-    "coins_1500": {"coins": 1500, "price": "149.00"},
+    "coins_100":      {"coins": 100,  "price": "29.00"},
+    "coins_300":      {"coins": 300,  "price": "49.00"},
+    "coins_700":      {"coins": 700,  "price": "99.00"},
+    "coins_1500":     {"coins": 1500, "price": "149.00"},
+    "survival_pack":  {"coins": 300,  "price": "49.00", "bonus": [("retry", 3), ("streak_shield", 2)]},
 }
 
 
@@ -142,6 +143,16 @@ def handler(event: dict, context) -> dict:
             f"UPDATE {SCHEMA}.players SET coins = coins + %s WHERE id = %s",
             (coins_to_add, player_id)
         )
+
+        for effect_key, qty in pkg.get("bonus", []):
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.inventory (player_id, item_id, quantity)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (player_id, item_id)
+                    DO UPDATE SET quantity = {SCHEMA}.inventory.quantity + EXCLUDED.quantity""",
+                (player_id, effect_key, qty)
+            )
+
         cur.execute(
             f"""INSERT INTO {SCHEMA}.payments (player_id, item_id, coins_added, amount, payment_id, order_id)
                 VALUES (%s, %s, %s, %s, %s, %s)""",

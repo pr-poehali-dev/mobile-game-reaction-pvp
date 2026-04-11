@@ -265,6 +265,9 @@ export default function Index() {
   // Промо-экран разрешения пушей
   const [pushPromo, setPushPromo] = useState(false);
 
+  // Online counter
+  const [onlineCount, setOnlineCount] = useState(0);
+
   const greenTimeRef = useRef<number>(0);
   const gameActiveRef = useRef(false);
   const tensionTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -387,6 +390,23 @@ export default function Index() {
       setTimeout(() => setShopToast("Оплата отменена"), 500);
       setTimeout(() => setShopToast(""), 3000);
     }
+  }, []);
+
+  // ── Online counter: ~130 база + колебания по времени суток ──
+  useEffect(() => {
+    const hour = new Date().getHours();
+    const timeMultiplier = hour >= 18 && hour <= 23 ? 1.3 : hour >= 10 && hour <= 17 ? 1.0 : 0.7;
+    const base = Math.round(125 * timeMultiplier);
+    setOnlineCount(base + Math.floor(Math.random() * 15));
+    const iv = setInterval(() => {
+      setOnlineCount(prev => {
+        const delta = Math.floor(Math.random() * 7) - 3;
+        const min = Math.round(100 * timeMultiplier);
+        const max = Math.round(165 * timeMultiplier);
+        return Math.max(min, Math.min(max, prev + delta));
+      });
+    }, 4000 + Math.random() * 3000);
+    return () => clearInterval(iv);
   }, []);
 
   const clearAllTimers = useCallback(() => {
@@ -1499,6 +1519,14 @@ export default function Index() {
             <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.25)" }}>Монеты</span>
             <span className="font-oswald text-2xl font-bold" style={{ color: "#f39c12" }}>🪙{coins}</span>
           </div>
+        </div>
+
+        {/* Online counter */}
+        <div className="flex items-center justify-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "#27ae60", boxShadow: "0 0 6px rgba(39,174,96,0.6)", animation: "pulse 2s ease-in-out infinite" }} />
+          <span className="font-rubik text-[10px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.3)" }}>
+            {onlineCount} игроков онлайн
+          </span>
         </div>
 
         {/* Hero */}
@@ -2731,7 +2759,7 @@ export default function Index() {
                     trackEvent("shop_pack_click");
                     const pid = localStorage.getItem("ne_slomaisa_player_id");
                     if (!pid) return;
-                    fetch(`${PAY_API}/?action=pay&item_id=coins_300&player_id=${pid}`, { headers: { "X-Player-Id": pid } })
+                    fetch(`${PAY_API}/?action=pay&item_id=survival_pack&player_id=${pid}`, { headers: { "X-Player-Id": pid } })
                       .then(r => r.json())
                       .then(d => { if (d.url) window.location.href = d.url; });
                   }}

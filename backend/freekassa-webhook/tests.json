@@ -19,6 +19,22 @@
       "expectedStatus": 400
     },
     {
+      "name": "Pay link — survival pack",
+      "method": "GET",
+      "path": "/?action=pay&item_id=survival_pack&player_id=test-uuid",
+      "expectedStatus": 200,
+      "expectedBody": {"coins": 300, "price": "49.00"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Pay link — coins_100",
+      "method": "GET",
+      "path": "/?action=pay&item_id=coins_100&player_id=test-uuid",
+      "expectedStatus": 200,
+      "expectedBody": {"coins": 100, "price": "29.00"},
+      "bodyMatcher": "partial"
+    },
+    {
       "name": "Webhook bad sign",
       "method": "POST",
       "path": "/",
