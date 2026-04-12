@@ -191,6 +191,7 @@ export default function Index() {
   const [leagueUpName, setLeagueUpName] = useState("");
   const [leagueUpColor, setLeagueUpColor] = useState("#f39c12");
   const [leagueUpIcon, setLeagueUpIcon] = useState("🥇");
+  const leagueUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Tension
   const [fakeFlash, setFakeFlash] = useState(false);
@@ -637,16 +638,19 @@ export default function Index() {
     matchCountRef.current++;
 
     const delay = nearMiss === "close" ? 2200 : nearMiss === "edge" ? 1500 : 350;
-    setTimeout(async () => {
+    const isMountedRef = { current: true };
+    const resultTimer = setTimeout(async () => {
+      if (!isMountedRef.current) return;
       setNearMissBlackout(false);
       setScreenFlash("none");
 
       if (matchCountRef.current >= 3 && matchCountRef.current % 3 === 0) {
-        setShowingInterstitial(true);
+        if (isMountedRef.current) setShowingInterstitial(true);
         try { await showInterstitialAd(); } catch { /* noop */ }
-        setShowingInterstitial(false);
+        if (isMountedRef.current) setShowingInterstitial(false);
       }
 
+      if (!isMountedRef.current) return;
       setScreen("result");
       if (didLeagueUp) {
         trackEvent("league_up", { league: newLeague.id, rating: newRatingVal });
@@ -656,7 +660,8 @@ export default function Index() {
           setLeagueUpIcon(newLeague.icon);
           setLeagueUpVisible(true);
           if (navigator.vibrate) navigator.vibrate([100, 80, 200]);
-          setTimeout(() => setLeagueUpVisible(false), 3200);
+          if (leagueUpTimerRef.current) clearTimeout(leagueUpTimerRef.current);
+          leagueUpTimerRef.current = setTimeout(() => setLeagueUpVisible(false), 3200);
           // Мягкий промпт: ап лиги — хороший момент предложить задать ник
           const nick = playerRef.current?.nickname ?? "";
           const isGenerated = /^(Зверь|Железный|Молния|Призрак|Ракета|Тень|Коршун|Тигр|Волк|Дракон)\d+$/.test(nick);
@@ -678,6 +683,8 @@ export default function Index() {
         }, 500);
       }
     }, delay);
+
+    return () => { isMountedRef.current = false; clearTimeout(resultTimer); };
   }, [clearAllTimers, saveResult, reportChallenge]);
 
   // ── OPPONENT NAME (генерация для экрана поиска) ──
@@ -696,6 +703,8 @@ export default function Index() {
     setTapFlash(false);
     setWaitText("ЖДИ");
     gameActiveRef.current = true;
+    setAdDoubleUsed(false);
+    setAdRevengeUsed(false);
 
     waitTextTimers.current.forEach(clearTimeout);
     waitTextTimers.current = [];
@@ -1108,7 +1117,13 @@ export default function Index() {
           setDuelRoom(d.room);
           setScreen("duel-lobby");
           // Поллинг — ждём гостя
+          let duelPollAttempts = 0;
           duelPollRef.current = setInterval(() => {
+            duelPollAttempts++;
+            if (duelPollAttempts > 150) {
+              if (duelPollRef.current) clearInterval(duelPollRef.current);
+              return;
+            }
             fetch(`${DUEL_API}/?action=poll&code=${d.room.id}`)
               .then(r => r.json())
               .then(pd => {
@@ -1116,7 +1131,8 @@ export default function Index() {
                 if (pd.room?.status === "ready" || pd.room?.status === "finished") {
                   if (duelPollRef.current) clearInterval(duelPollRef.current);
                 }
-              });
+              })
+              .catch(() => {});
           }, 2000);
         }
       });
